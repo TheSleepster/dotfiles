@@ -1,0 +1,200 @@
+{
+    "layer": "top", 
+    "position": "top", 
+    "height": 25,
+    "margin-left": 5,
+    "margin-right": 5,
+    "margin-top": 5,
+    "margin-bottom": 0,
+    "spacing": 1,
+    "reload_style_on_change": true,
+
+    "modules-left": [
+        "group/group-1"
+    ],
+
+    "modules-center": [
+        "group/group-2"
+    ],
+
+    "modules-right": [
+        "group/group-4",
+        "group/group-3"
+    ],
+
+    "group/group-1": {
+        "orientation": "horizontal",
+        "modules": [
+            "hyprland/workspaces"
+        ]
+    },
+
+    "group/group-2": {
+        "orientation": "horizontal",
+        "modules": [
+            "clock"
+        ]
+    },
+
+    "group/group-3": {
+        "orientation": "horizontal",
+        "modules": [
+            "bluetooth",
+            "network",
+            "custom/power"
+        ]
+    },
+
+    "group/group-4": {
+        "orientation": "horizontal",
+        "modules": [
+            "pulseaudio",
+            "battery",
+            "backlight"
+        ]
+    },
+
+    "custom/notification": {
+        "tooltip": false,
+        "format": " 󰂚",
+        "format-icons": {
+            "notification": "󰂚<span foreground='red'><sup></sup></span>",
+            "none": "",
+            "dnd-notification": "<span foreground='red'><sup></sup></span>",
+            "dnd-none": "",
+            "inhibited-notification": "<span foreground='red'><sup></sup></span>",
+            "inhibited-none": "",
+            "dnd-inhibited-notification": "<span foreground='red'><sup></sup></span>",
+            "dnd-inhibited-none": ""
+        },
+        "return-type": "json",
+        "exec-if": "which swaync-client",
+        "exec": "swaync-client -swb",
+        "on-click": "swaync-client -t -sw",
+        "on-click-right": "swaync-client -d -sw",
+        "escape": true
+    },
+
+    "backlight": {
+        "format": "{icon} {percent:>2}%",
+        "format-icons": [ "", "", "", "", "", "", "", "", ""]
+    },
+
+    "custom/power": {
+        "format": "{icon}",
+        "format-icons": "", //  
+        "exec-on-event": "true",
+        "on-click": "wlogout",
+        "tooltip-format": "Power Menu"
+    },
+    
+    "battery": {
+        "states": {
+            "warning": 30,
+            "critical": 15
+        },
+        "format": "{icon}  {capacity}%",
+        "format-full": "{icon}  {capacity}%",
+        "format-charging": "  {capacity}%",
+        "format-plugged": "  {capacity}%",
+        "format-alt": "{time}  {icon}",
+        "format-icons": ["", "", "", "", ""]
+    },
+
+    "hyprland/workspaces": {
+        "on-click": "activate",
+        "activate-only": false,
+        "all-outputs": true,
+        "format": "{name}",
+        "format-icons": {
+            "1": "*",  
+            "2": "*",   
+            "3": "*",     
+            "4": "*",    
+            "5": "*",   
+            "6": "*",     
+            "7": "*",    
+            "8": "*",     
+            "9": "*",    
+            "10": "*",
+            "urgent": "*",
+            "active": "*",
+            "default": "*"
+        },
+        "persistent_workspaces": {
+            "[]": 3
+        }
+    },
+
+    "hyprland/window": {
+        "format": "{}",
+        "max-length": 18,
+        "separate-outputs": true
+    },
+
+    "river/tags": {
+        "num-tags": 7,
+        "tag-labels": ["", "", "", "", "", "", "", "", "", ""]
+    },
+
+    "clock": {
+        "format": "{:%H:%M - %h %d}",
+        "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
+        "format-alt": "{:%Y-%m-%d}"
+    },
+
+    "bluetooth": {
+        "format": "{icon}",
+        "format-icons": ["󰂯", "󰤾", "󰥀", "󰥄", "󰥈"],
+
+        "tooltip-format-off": "Bluetooth is off",
+        "tooltip-format-on": "Bluetooth is on",
+
+        "format-connected": "{icon} {num_connections}",
+        "format-connected-battery": "{icon} {device_battery_percentage}%",
+
+        "tooltip-format-connected": "{device_enumerate}",
+        "tooltip-format-enumerate-connected": "{device_alias}\t{device_battery_percentage}%",
+
+        "on-click": "blueberry"
+    },
+
+    "network": {
+        "interval": 3,
+        "format-wifi": "{icon}", 
+        "format-ethernet": "󰌗 {ipaddr}", 
+        "format-linked": "󰌙 {ifname} (Sin IP)", 
+        "format-disconnected": "󰖪", 
+        "format-alt": "󰛳 {ifname}", 
+        "tooltip-format-wifi": " {bandwidthDownBytes}  {bandwidthUpBytes}", 
+        "tooltip-format-ethernet": "󰌗 {ifname} | IP: {ipaddr}/{cidr} | GW: {gwaddr}", 
+        "tooltip-format-disconnected": "󰖪 No internet connection", 
+        "tooltip-format-linked": "󰌙 {ifname}: Not ip",
+        "max-length": 30, 
+        "on-click": "~/.config/rofi/wifi/script.sh", 
+        "format-icons": {
+            "wifi": ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"], 
+            "ethernet": ["󰌗"], 
+            "disconnected": ["󰖪"] 
+        }
+    },
+
+    "pulseaudio": {
+        "format": "{icon} {volume}%", 
+        "format-bluetooth": "{icon} {volume}% 󰂯", 
+        "format-bluetooth-muted": "󰖁 {icon} 󰂯", 
+        "format-muted": "󰖁 {volume}%",
+        "format-source": " {volume}%",
+        "format-source-muted": "",
+        "format-icons": {
+            "headphone": "󰋋",
+            "hands-free": "󱡒",
+            "headset": "󰋎",
+            "phone": "",
+            "portable": "",
+            "car": "",
+            "default": ["", "", ""]
+        },
+        "on-click": "pavucontrol"
+    }
+}

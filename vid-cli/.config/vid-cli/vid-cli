@@ -1,0 +1,2096 @@
+#!/bin/bash
+# vid-cli: Minimalist YouTube Search & Play / Audio Downloader
+# Author: Sleepster
+#
+# Strongly Inspired By: Renxznm (https://github.com/Renxznm/vid-cli)
+
+version_number="4.0.0"
+
+# --- CORE FUNCTIONS ---
+
+die() {
+    printf "\033[1;31m%s\033[0m\n" "$*" >&2
+    exit 1
+}
+
+check_dependencies() {
+    for dep in "$@"; do
+        command -v "$dep" >/dev/null 2>&1 || die "Error: '$dep' is not installed. Please install it first."
+    done
+}
+
+launcher() {
+    fzf --prompt="$1" --border=rounded --layout=reverse --height="$2"
+}
+
+help_info() {
+    printf "🎬 \033[1;36mvid-cli\033[0m v%s - Minimalist YouTube Player Inspired by ani-cli\n\n" "$version_number"
+    printf "Usage:\n  vid-cli [query]\n  vid-cli [options]\n\n"
+    printf "Options:\n"
+    printf "  -v, --version    Show script version\n"
+    printf "  -h, --help       Show this help message\n"
+    printf "  -s, --setup      Re-export YouTube cookies from Firefox\n\n"
+    printf "Example:\n  vid-cli \"wemmbu 2 pro vs 1000\"\n"
+    exit 0
+}
+
+print_banner() {
+    clear
+    echo ""
+    echo -e "\033[1;36m  ██╗   ██╗██╗██████╗        ██████╗██╗     ██╗\033[0m"
+    echo -e "\033[1;36m  ██║   ██║██║██╔══██╗      ██╔════╝██║     ██║\033[0m"
+    echo -e "\033[1;36m  ██║   ██║██║██║  ██║ ██╗  ██║     ██║     ██║\033[0m"
+    echo -e "\033[1;36m  ╚██╗ ██╔╝██║██║  ██║ ╚═╝  ██║     ██║     ██║\033[0m"
+    echo -e "\033[1;36m   ╚████╔╝ ██║██████╔╝      ╚██████╗███████╗██║\033[0m"
+    echo -e "\033[1;36m    ╚═══╝  ╚═╝╚═════╝        ╚═════╝╚══════╝╚═╝\033[0m"
+    echo ""
+    echo -e "\033[0;90m        v${version_number} — Minimalist YouTube Player\033[0m"
+    echo ""
+}
+
+# --- THUMBNAIL PREVIEW HELPER ---
+# Line format: DISPLAY :: META :: ID :: TYPE
+# TYPE is "video", "channel", or "playlist"
+# Line format: DISPLAY ::: META ::: ID ::: TYPE ::: THUMB_URL
+PREVIEW_SCRIPT='
+    entry_type=$(echo {} | awk -F " ::: " "{print \$4}")
+    item_id=$(echo {}    | awk -F " ::: " "{print \$3}")
+    title=$(echo {}      | awk -F " ::: " "{print \$1}" | sed "s/^[[:space:]]*//")
+    meta=$(echo {}       | awk -F " ::: " "{print \$2}")
+    thumb_url=$(echo {}  | awk -F " ::: " "{print \$5}")
+    printf "\033[1;37m%s\033[0m\n" "$title"
+    printf "\033[0;90m%s\033[0m\n\n" "$meta"
+    cache_dir="/tmp/vid-cli-thumbs"
+    mkdir -p "$cache_dir"
+    sentinel="$cache_dir/.last_img_key"
+    _draw_image() {
+        local img_file="$1" new_key="$2"
+        local last_key; last_key=$(cat "$sentinel" 2>/dev/null)
+        if [ "$new_key" = "$last_key" ]; then
+            # Same image — redraw without clearing (fzf already cleared text)
+            chafa --size="${FZF_PREVIEW_COLUMNS}x${FZF_PREVIEW_LINES}" "$img_file" 2>/dev/null
+            return
+        fi
+        # Different image — send Kitty delete-all then redraw
+        printf "\033_Ga=d\033\\"
+        chafa --size="${FZF_PREVIEW_COLUMNS}x${FZF_PREVIEW_LINES}" "$img_file" 2>/dev/null
+        printf "%s" "$new_key" > "$sentinel"
+    }
+    if [ "$entry_type" = "video" ]; then
+        cache_file="$cache_dir/$item_id.jpg"
+        if [ ! -f "$cache_file" ]; then
+            curl -s --max-time 5 "https://img.youtube.com/vi/$item_id/maxresdefault.jpg" -o "$cache_file" 2>/dev/null
+            size=$(wc -c < "$cache_file" 2>/dev/null || echo 0)
+            [ "$size" -lt 5000 ] && curl -s --max-time 5 "https://img.youtube.com/vi/$item_id/sddefault.jpg" -o "$cache_file" 2>/dev/null
+        fi
+        if [ -s "$cache_file" ]; then
+            _draw_image "$cache_file" "$item_id"
+        else
+            printf "\033_Ga=d\033\\"
+            printf "\033[0;31m(thumbnail unavailable)\033[0m\n"
+            printf "" > "$sentinel"
+            rm -f "$cache_file"
+        fi
+    elif [ "$entry_type" = "playlist" ] || [ "$entry_type" = "channel" ]; then
+        if [ -n "$thumb_url" ] && [ "$thumb_url" != "NA" ] && [ "$thumb_url" != "None" ]; then
+            key=$(echo "$thumb_url" | md5sum | cut -d" " -f1)
+            cache_file="$cache_dir/${key}.jpg"
+            [ ! -s "$cache_file" ] && curl -s --max-time 8 "$thumb_url" -o "$cache_file" 2>/dev/null
+            [ -s "$cache_file" ] && _draw_image "$cache_file" "$key"
+        fi
+        if [ "$entry_type" = "channel" ]; then
+            printf "\033[1;36m📺  YouTube Channel\033[0m\n"
+            printf "\033[0;90m  Press ENTER to browse videos & playlists\033[0m\n"
+        else
+            printf "\033[1;33m📋  YouTube Playlist\033[0m\n"
+            printf "\033[0;90m  Press ENTER to browse videos\033[0m\n"
+        fi
+    fi
+'
+
+# --- YOUTUBE SEARCH SCRIPT (written at runtime so $COOKIES_FILE is embedded) ---
+_write_yt_search_script() {
+    cat > /tmp/vid-cli-yt-search.sh << SEARCHEOF
+#!/bin/bash
+query="\$1"
+[[ \${#query} -lt 3 ]] && exit 0
+
+cache_query_file="/tmp/vid-cli-yt-last-query"
+cache_file="/tmp/vid-cli-yt-cache.txt"
+if [[ -f "\$cache_query_file" && -f "\$cache_file" ]]; then
+    [[ "\$(cat "\$cache_query_file")" == "\$query" ]] && cat "\$cache_file" && exit 0
+fi
+
+encoded=\$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "\$query" 2>/dev/null)
+tf=\$(mktemp /tmp/vid-cli-yt-XXXXXX.txt)
+
+yt-dlp "https://www.youtube.com/results?search_query=\${encoded}" \\
+    --cookies "${COOKIES_FILE}" \\
+    --flat-playlist \\
+    -I 1:20 \\
+    --print "%(title)s|||%(webpage_url)s|||%(id)s|||%(uploader)s|||%(duration_string)s|||%(playlist_count)s|||%(thumbnail)s" \\
+    2>/dev/null > "\$tf"
+
+python3 - "\$tf" "\$cache_file" << 'PYEOF'
+import sys
+
+lines = []
+with open(sys.argv[1]) as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        parts = line.split("|||")
+        if len(parts) < 3: continue
+        title    = parts[0]
+        url      = parts[1]
+        item_id  = parts[2]
+        uploader = parts[3] if len(parts) > 3 else ""
+        dur      = parts[4] if len(parts) > 4 else ""
+        count    = parts[5] if len(parts) > 5 else ""
+        thumb    = parts[6] if len(parts) > 6 else ""
+
+        # yt-dlp sometimes emits literal "NA" — treat as empty
+        thumb = "" if thumb in ("NA", "None", "none") else thumb
+
+        if "/channel/" in url or "/@" in url or "/user/" in url:
+            lines.append(f"  📺  {title} ::: YouTube Channel ::: {url} ::: channel ::: {thumb}")
+        elif "playlist?list=" in url or "/playlist/" in url:
+            # count from search API is often "NA" — only show real numbers
+            try:
+                n = f"{int(count)} videos"
+            except (ValueError, TypeError):
+                n = "Playlist"
+            meta = " · ".join(p for p in [uploader, n] if p)
+            lines.append(f"  📋  {title} ::: {meta} ::: {url} ::: playlist ::: {thumb}")
+        else:
+            meta = " · ".join(p for p in [uploader, dur] if p)
+            lines.append(f"  🎬  {title} ::: {meta} ::: {item_id} ::: video ::: https://img.youtube.com/vi/{item_id}/mqdefault.jpg")
+
+result = "\n".join(lines)
+print(result)
+with open(sys.argv[2], "w") as f:
+    f.write(result + "\n")
+PYEOF
+
+echo "\$query" > "\$cache_query_file"
+rm -f "\$tf"
+SEARCHEOF
+    chmod +x /tmp/vid-cli-yt-search.sh
+}
+
+
+# --- SHARED LIVE SEARCH ---
+run_search() {
+    local prompt="$1" query="$2"
+    _write_yt_search_script
+    : | fzf --prompt="$prompt" \
+            --border=rounded \
+            --layout=reverse \
+            --height=80% \
+            --disabled \
+            --print-query \
+            --delimiter=" ::: " \
+            --with-nth=1,2 \
+            --preview="$PREVIEW_SCRIPT" \
+            --bind "resize:execute-silent(rm -f /tmp/vid-cli-thumbs/.last_img_key 2>/dev/null)+refresh-preview" \
+            --preview-window="right:40%:wrap" \
+            --color="prompt:#00afff,pointer:#00afff,hl:#00afff,hl+:#00afff" \
+            --query="$query" \
+            --bind "change:reload:bash /tmp/vid-cli-yt-search.sh {q}" \
+            --bind "start:reload:cat /tmp/vid-cli-yt-cache.txt 2>/dev/null || bash /tmp/vid-cli-yt-search.sh {q}" \
+            --header="  Type to search — 📺 channels  📋 playlists  🎬 videos"
+}
+
+
+# --- BACKGROUND JOB TRACKING ---
+AUDIO_JOBS=()
+
+check_audio_jobs() {
+    [[ ${#AUDIO_JOBS[@]} -eq 0 ]] && return
+    local remaining=()
+    for job in "${AUDIO_JOBS[@]}"; do
+        local pid title dest ext logfile donefile
+        IFS='|' read -r pid title dest ext logfile donefile <<< "$job"
+        if kill -0 "$pid" 2>/dev/null; then
+            printf "  ⏳ \033[0;33mRunning:\033[0m %s\n" "$title"
+            remaining+=("$job")
+        else
+            wait "$pid"
+            local status
+            status=$(cat "$donefile" 2>/dev/null)
+            if [[ "$status" == "OK" ]]; then
+                printf "  ✅ \033[1;32mDone:\033[0m %s [%s]\n" "$title" "${ext^^}"
+            else
+                printf "  ❌ \033[1;31mFailed:\033[0m %s\n" "$title"
+                if [[ -f "$logfile" ]]; then
+                    printf "  \033[0;90m--- %s ---\033[0m\n" "$logfile"
+                    tail -n 10 "$logfile" | sed 's/^/     /'
+                fi
+            fi
+            rm -f "$donefile"
+        fi
+    done
+    AUDIO_JOBS=("${remaining[@]}")
+}
+
+cleanup() {
+    rm -rf /tmp/vid-cli-thumbs /tmp/vid-cli-cover-*.jpg /tmp/vid-cli-*.log \
+            /tmp/vid-cli-yt-cache.txt /tmp/vid-cli-yt-last-query \
+            /tmp/vid-cli-yt-search.sh /tmp/vid-cli-music-search.sh \
+            /tmp/vid-cli-sp-thumbs /tmp/vid-cli-cand-*.tsv /tmp/vid-cli-dz-*.json \
+            /tmp/vid-cli-disco-*.txt /tmp/vid-cli-allvids-*.txt /tmp/vid-cli-ytaud-*.txt \
+            /tmp/vid-cli-yt-aud-search.sh /tmp/vid-cli-music-cache.txt /tmp/vid-cli-music-last-query
+    printf "\033[H\033[2J\033[3J"
+    printf "\033_Ga=d\033\\"
+    if [ ${#AUDIO_JOBS[@]} -gt 0 ]; then
+        printf "\n\033[0;33m  ⏳ %d audio download(s) still running in the background:\033[0m\n" "${#AUDIO_JOBS[@]}"
+        for job in "${AUDIO_JOBS[@]}"; do
+            local title dest ext logfile
+            local _pid _done
+            IFS='|' read -r _pid title dest ext logfile _done <<< "$job"
+            printf "    • %s  [%s → %s]\n" "$title" "${ext^^}" "$dest"
+            [[ -n "$logfile" ]] && printf "      log: %s\n" "$logfile"
+        done
+        printf "\n"
+    fi
+}
+trap cleanup EXIT
+
+# =============================================================================
+# DEEZER API — no credentials needed
+# =============================================================================
+# Line format: DISPLAY ::: TYPE ::: DEEZER_ID ::: IMG_URL ::: EXTRA
+
+deezer_api() {
+    curl -s --max-time 10 "https://api.deezer.com${1}" 2>/dev/null
+}
+
+MUSIC_PREVIEW='
+    display=$(echo {} | awk -F" ::: " "{print \$1}" | sed "s/^[[:space:]]*//")
+    extra=$(echo {}   | awk -F" ::: " "{print \$5}")
+    img_url=$(echo {} | awk -F" ::: " "{print \$4}")
+    printf "\033[1;37m%s\033[0m\n" "$display"
+    [ -n "$extra" ] && printf "\033[0;90m%s\033[0m\n" "$extra"
+    printf "\n"
+    if [ -n "$img_url" ] && [ "$img_url" != "NA" ] && [ "$img_url" != "None" ]; then
+        cache_dir="/tmp/vid-cli-sp-thumbs"
+        mkdir -p "$cache_dir"
+        sentinel="$cache_dir/.last_img_key"
+        key=$(echo "$img_url" | md5sum | cut -d" " -f1)
+        cache_file="$cache_dir/${key}.jpg"
+        [ ! -f "$cache_file" ] && curl -s --max-time 8 "$img_url" -o "$cache_file" 2>/dev/null
+        if [ -s "$cache_file" ]; then
+            last_key=$(cat "$sentinel" 2>/dev/null)
+            if [ "$key" != "$last_key" ]; then
+                printf "\033_Ga=d\033\\"
+                printf "%s" "$key" > "$sentinel"
+            fi
+            chafa --size="${FZF_PREVIEW_COLUMNS}x$((FZF_PREVIEW_LINES-4))" "$cache_file" 2>/dev/null
+        fi
+    else
+        sentinel="/tmp/vid-cli-sp-thumbs/.last_img_key"
+        last_key=$(cat "$sentinel" 2>/dev/null)
+        if [ -n "$last_key" ]; then
+            printf "\033_Ga=d\033\\"
+            printf "" > "$sentinel"
+        fi
+    fi
+'
+
+_write_music_search_script() {
+    cat > /tmp/vid-cli-music-search.sh << 'SEARCHEOF'
+#!/bin/bash
+query="$1"
+[[ ${#query} -lt 2 ]] && exit 0
+
+# Cache: skip Deezer fetch if query unchanged
+cache_query_file="/tmp/vid-cli-music-last-query"
+cache_file="/tmp/vid-cli-music-cache.txt"
+if [[ -f "$cache_query_file" && -f "$cache_file" ]]; then
+    [[ "$(cat "$cache_query_file")" == "$query" ]] && cat "$cache_file" && exit 0
+fi
+
+encoded=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$query" 2>/dev/null)
+
+tf_a=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+tf_b=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+tf_t=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+tf_p=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+
+curl -s --max-time 8 "https://api.deezer.com/search/artist?q=${encoded}&limit=4"   -o "$tf_a" 2>/dev/null & _p1=$!
+curl -s --max-time 8 "https://api.deezer.com/search/album?q=${encoded}&limit=4"    -o "$tf_b" 2>/dev/null & _p2=$!
+curl -s --max-time 8 "https://api.deezer.com/search/track?q=${encoded}&limit=6"    -o "$tf_t" 2>/dev/null & _p3=$!
+curl -s --max-time 8 "https://api.deezer.com/search/playlist?q=${encoded}&limit=3" -o "$tf_p" 2>/dev/null & _p4=$!
+wait $_p1 $_p2 $_p3 $_p4
+
+python3 - "$tf_a" "$tf_b" "$tf_t" "$tf_p" << 'PYEOF' | tee "$cache_file"
+import sys, json
+
+def load(p):
+    try:
+        with open(p) as f: return json.load(f).get("data", [])
+    except: return []
+
+def dur(s): return f"{s//60}:{s%60:02d}"
+
+for a in load(sys.argv[1]):
+    fans = a.get("nb_fan", 0)
+    img  = a.get("picture_medium", "")
+    print(f"  🎤  {a['name']} ::: artist ::: {a['id']} ::: {img} ::: {fans:,} fans")
+
+for a in load(sys.argv[2]):
+    art = a.get("artist", {}).get("name", "")
+    img = a.get("cover_medium", "")
+    n   = a.get("nb_tracks", "?")
+    print(f"  💿  {a['title']} · {art} ::: album ::: {a['id']} ::: {img} ::: {art} · {n} tracks")
+
+for t in load(sys.argv[3]):
+    art = t.get("artist", {}).get("name", "")
+    alb = t.get("album",  {}).get("title", "")
+    img = t.get("album", {}).get("cover_xl") or t.get("album", {}).get("cover_medium", "")
+    d   = dur(t.get("duration", 0))
+    print(f"  🎵  {t['title']} · {art} ::: track ::: {t['id']} ::: {img} ::: {art} · {alb} · {d}")
+
+import io, os, sys as _sys
+_out = io.StringIO()
+_orig_stdout = _sys.stdout
+_sys.stdout = _out
+
+for p in load(sys.argv[4]):
+    user = p.get("user", {}).get("name", "")
+    n    = p.get("nb_tracks", "?")
+    img  = p.get("picture_medium", "")
+    print(f"  📋  {p['title']} ::: playlist ::: {p['id']} ::: {img} ::: by {user} · {n} tracks")
+PYEOF
+echo "$query" > "$cache_query_file"
+rm -f "$tf_a" "$tf_b" "$tf_t" "$tf_p"
+SEARCHEOF
+    chmod +x /tmp/vid-cli-music-search.sh
+}
+
+# =============================================================================
+# MUSIC PAGE FUNCTIONS
+# =============================================================================
+
+music_tracklist_fzf() {
+    local header="$1" lines="$2" all_label="$3"
+    local full_list="$lines"
+    [[ -n "$all_label" ]] && \
+        full_list=$(printf '  ⬇️   %s ::: action ::: download_all ::: ::: \n%s' "$all_label" "$lines")
+
+    local selected
+    selected=$(printf '%s' "$full_list" \
+        | fzf --prompt="  ❯ " \
+              --header="  ${header}  ·  TAB to multi-select" \
+              --border=rounded --layout=reverse --height=85% \
+              --multi \
+              --delimiter=" ::: " --with-nth=1 \
+              --preview="$MUSIC_PREVIEW" \
+              --bind "resize:execute-silent(rm -f /tmp/vid-cli-sp-thumbs/.last_img_key 2>/dev/null)+refresh-preview" \
+              --preview-window="right:40%:wrap" \
+              --color="prompt:#1db954,pointer:#1db954,hl:#1db954,hl+:#1db954,header:#888888")
+    [[ -z "$selected" ]] && return 1
+    printf '%s' "$selected"
+}
+
+# Shared fzf+download loop for album and playlist pages.
+# $1=header $2=all_label $3=lines $4=artist $5=album $6=cover_url
+_music_tracklist_page() {
+    local header="$1" all_label="$2" lines="$3" artist="$4" album="$5" cover_url="$6"
+    [[ -z "$lines" ]] && { echo -e "  \033[1;31m❌ Nothing to display.\033[0m\n"; return 1; }
+    while true; do
+        local selected
+        selected=$(music_tracklist_fzf "$header" "$lines" "$all_label") || { _clear_graphics; return 0; }
+        _clear_graphics
+        local ext dest_dir
+        ext=$(pick_format)        || continue
+        dest_dir=$(pick_dest_dir) || continue
+        local dl_lines="$selected"
+        echo "$selected" | grep -q "action ::: download_all" && dl_lines="$lines"
+        _queue_lines "$dl_lines" "$artist" "$album" "$cover_url" "$ext" "$dest_dir"
+        continue
+    done
+}
+
+music_album_page() {
+    local album_id="$1"
+    local jf; jf=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+    deezer_api "/album/${album_id}" > "$jf"
+
+    local album_name artist_name img_url release_year total_tracks lines
+    album_name=$(python3  -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('title',''))"                   "$jf" 2>/dev/null)
+    artist_name=$(python3 -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('artist',{}).get('name',''))" "$jf" 2>/dev/null)
+    img_url=$(python3     -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('cover_xl') or d.get('cover_medium',''))"            "$jf" 2>/dev/null)
+    release_year=$(python3 -c "import sys,json; d=json.load(open(sys.argv[1])); print((d.get('release_date') or '')[:4])" "$jf" 2>/dev/null)
+    total_tracks=$(python3 -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('nb_tracks','?'))"            "$jf" 2>/dev/null)
+
+    # Fetch ALL tracks, following Deezer pagination (next URL)
+    lines=$(python3 - "$jf" "$album_id" << 'PYEOF'
+import sys, json, urllib.request
+
+d   = json.load(open(sys.argv[1]))
+img = d.get("cover_xl") or d.get("cover_medium", "")
+
+all_tracks = list(d.get("tracks", {}).get("data", []))
+next_url   = d.get("tracks", {}).get("next", "")
+
+while next_url:
+    try:
+        with urllib.request.urlopen(next_url, timeout=8) as r:
+            page = json.loads(r.read())
+        all_tracks.extend(page.get("data", []))
+        next_url = page.get("next", "")
+    except Exception:
+        break
+
+for t in all_tracks:
+    n   = t.get("track_position", 0)
+    s   = t.get("duration", 0)
+    dur = f"{s//60}:{s%60:02d}"
+    art = t.get("artist", {}).get("name", "")
+    print(f"  {n:02d}  {t['title']}  ·  {dur} ::: track ::: {t['id']} ::: {img} ::: {art}")
+PYEOF
+    )
+    rm -f "$jf"
+    [[ -z "$lines" ]] && { echo -e "  \033[1;31m❌ Could not load album tracks.\033[0m\n"; return 1; }
+
+    _music_tracklist_page \
+        "💿 ${album_name} · ${artist_name} · ${release_year} · ${total_tracks} tracks" \
+        "Download entire album" "$lines" "$artist_name" "$album_name" "$img_url"
+}
+
+music_playlist_page() {
+    local playlist_id="$1"
+    local jf; jf=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+    deezer_api "/playlist/${playlist_id}" > "$jf"
+
+    local pl_name owner img_url lines
+    pl_name=$(python3 -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('title',''))"                "$jf" 2>/dev/null)
+    owner=$(python3   -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('creator',{}).get('name',''))" "$jf" 2>/dev/null)
+    img_url=$(python3 -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('picture_xl') or d.get('picture_medium',''))"        "$jf" 2>/dev/null)
+
+    lines=$(python3 - "$jf" << 'PYEOF'
+import sys, json
+d      = json.load(open(sys.argv[1]))
+pl_img = d.get("picture_medium", "")
+for i, t in enumerate(d.get("tracks", {}).get("data", []), 1):
+    s   = t.get("duration", 0)
+    dur = f"{s//60}:{s%60:02d}"
+    art = t.get("artist", {}).get("name", "")
+    img = t.get("album", {}).get("cover_xl") or t.get("album", {}).get("cover_medium", pl_img)
+    print(f"  {i:02d}  {t['title']}  ·  {dur} ::: track ::: {t['id']} ::: {img} ::: {art}")
+PYEOF
+    )
+    rm -f "$jf"
+    [[ -z "$lines" ]] && { echo -e "  \033[1;31m❌ Could not load playlist tracks.\033[0m\n"; return 1; }
+
+    _music_tracklist_page \
+        "📋 ${pl_name} · by ${owner}" \
+        "Download entire playlist" "$lines" "" "" "$img_url"
+}
+
+music_artist_page() {
+    local artist_id="$1"
+    local jf_a jf_t jf_b
+    jf_a=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+    jf_t=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+    jf_b=$(mktemp /tmp/vid-cli-dz-XXXXXX.json)
+    deezer_api "/artist/${artist_id}"                 > "$jf_a" & _p1=$!
+    deezer_api "/artist/${artist_id}/albums?limit=100" > "$jf_b" & _p2=$!
+    wait $_p1 $_p2
+    deezer_api "/artist/${artist_id}/top?limit=10" > "$jf_t"
+    if ! python3 -c "import sys,json; d=json.load(open(sys.argv[1])); assert d.get('data')" \
+            "$jf_t" 2>/dev/null; then
+        sleep 1
+        deezer_api "/artist/${artist_id}/top?limit=10" > "$jf_t"
+    fi
+
+    local artist_name img_url
+    artist_name=$(python3 -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('name',''))"           "$jf_a" 2>/dev/null)
+    img_url=$(python3     -c "import sys,json; d=json.load(open(sys.argv[1])); print(d.get('picture_xl') or d.get('picture_medium',''))" "$jf_a" 2>/dev/null)
+
+    local top_lines
+    top_lines=$(python3 - "$jf_t" << 'PYEOF'
+import sys, json
+try:
+    d = json.load(open(sys.argv[1]))
+    for i, t in enumerate(d.get("data", []), 1):
+        s   = t.get("duration", 0)
+        dur = f"{s//60}:{s%60:02d}"
+        alb = t.get("album", {}).get("title", "")
+        img = t.get("album", {}).get("cover_medium", "")
+        print(f"  {i:02d}  {t['title']}  ·  {dur} ::: track ::: {t['id']} ::: {img} ::: {alb}")
+except Exception:
+    pass
+PYEOF
+    )
+
+    local albums_lines album_ids
+    albums_lines=$(python3 - "$jf_b" << 'PYEOF'
+import sys, json
+d    = json.load(open(sys.argv[1]))
+seen = set()
+for a in d.get("data", []):
+    aid = a.get("id", "")
+    if aid in seen: continue
+    seen.add(aid)
+    year  = (a.get("release_date") or "")[:4]
+    n     = a.get("nb_tracks", "?")
+    rtype = a.get("record_type", "album").title()
+    img   = a.get("cover_xl") or a.get("cover_medium", "")
+    print(f"  💿  {a['title']}  ·  {year} ::: album ::: {aid} ::: {img} ::: {rtype} · {n} tracks")
+PYEOF
+    )
+    # Extract album IDs for discography fetch
+    album_ids=$(python3 -c "
+import sys, json
+d = json.load(open(sys.argv[1]))
+print(' '.join(str(a['id']) for a in d.get('data',[]) if a.get('id')))" "$jf_b" 2>/dev/null)
+    rm -f "$jf_a" "$jf_t" "$jf_b"
+
+    # Build full discography (all tracks from all albums) in background on first open
+    local disco_cache="/tmp/vid-cli-disco-${artist_id}.txt"
+
+    local full_list
+    full_list=$(printf '%s\n%s\n%s\n%s\n%s\n%s' \
+        "  🔍  Search full discography ::: action ::: search_disco ::: ${img_url} ::: " \
+        "  ⬇️   Download all top tracks ::: action ::: download_top ::: ${img_url} ::: " \
+        "  ── Popular tracks ──────────────────── ::: section ::: ::: ::: " \
+        "$top_lines" \
+        "  ── Albums & Singles ────────────────── ::: section ::: ::: ::: " \
+        "$albums_lines")
+
+    while true; do
+        local selected
+        selected=$(printf '%s' "$full_list" \
+            | fzf --prompt="  ❯ " \
+                  --header="  🎤  ${artist_name}  ·  TAB = multi-select  ·  'd' = full discography" \
+                  --border=rounded --layout=reverse --height=85% \
+                  --multi \
+                  --delimiter=" ::: " --with-nth=1 \
+                  --preview="$MUSIC_PREVIEW" \
+                  --bind "resize:execute-silent(rm -f /tmp/vid-cli-sp-thumbs/.last_img_key 2>/dev/null)+refresh-preview" \
+                  --preview-window="right:40%:wrap" \
+                  --color="prompt:#1db954,pointer:#1db954,hl:#1db954,hl+:#1db954,header:#888888") || { _clear_graphics; return 0; }
+        _clear_graphics
+
+        local sel_type
+        sel_type=$(echo "$selected" | head -1 | awk -F' ::: ' '{print $2}')
+        [[ "$sel_type" == "section" ]] && continue
+
+        # ── Search full discography ───────────────────────────────────────────
+        if echo "$selected" | grep -q "search_disco"; then
+            # Build discography cache if not already done
+            if [[ ! -s "$disco_cache" ]]; then
+                _clear_graphics
+                echo -e "\n  \033[0;90mFetching full discography...\033[0m"
+                python3 - $album_ids << 'PYEOF' > "$disco_cache"
+import sys, json, urllib.request, concurrent.futures
+
+def fetch_album(aid):
+    try:
+        url  = f"https://api.deezer.com/album/{aid}/tracks?limit=100"
+        data = json.loads(urllib.request.urlopen(url, timeout=8).read())
+        alb  = json.loads(urllib.request.urlopen(
+                   f"https://api.deezer.com/album/{aid}", timeout=8).read())
+        alb_title = alb.get("title", "")
+        alb_img   = alb.get("cover_xl") or alb.get("cover_medium", "")
+        year      = (alb.get("release_date") or "")[:4]
+        lines = []
+        for t in data.get("data", []):
+            s   = t.get("duration", 0)
+            dur = f"{s//60}:{s%60:02d}"
+            lines.append(
+                f"  🎵  {t['title']}  ·  {alb_title}  ·  {year}  ·  {dur}"
+                f" ::: track ::: {t['id']} ::: {alb_img} ::: {alb_title}")
+        return lines
+    except Exception:
+        return []
+
+aids = sys.argv[1:]
+all_lines = []
+seen = set()
+with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+    futures = {ex.submit(fetch_album, aid): aid for aid in aids}
+    for fut in concurrent.futures.as_completed(futures):
+        for line in fut.result():
+            tid = line.split(" ::: ")[2] if " ::: " in line else ""
+            if tid and tid not in seen:
+                seen.add(tid)
+                all_lines.append(line)
+
+# Sort by album title then track title for a clean browse
+all_lines.sort(key=lambda l: (l.split(" · ")[1] if " · " in l else "", l))
+for l in all_lines:
+    print(l)
+PYEOF
+            fi
+
+            if [[ ! -s "$disco_cache" ]]; then
+                echo -e "  \033[1;31m❌ Could not load discography.\033[0m"; sleep 1; continue
+            fi
+
+            local disco_sel
+            _clear_graphics
+            # Text-only preview — no image rendering on keypress, avoids
+            # Kitty graphics escape sequences causing terminal scroll on redraw.
+            local _disco_preview
+            _disco_preview='
+                title=$(echo {} | awk -F" ::: " "{print \$1}" | sed "s/^[[:space:]]*//")
+                album=$(echo {} | awk -F" ::: " "{print \$5}")
+                printf "\033[1;37m%s\033[0m\n" "$title"
+                [ -n "$album" ] && [ "$album" != "NA" ] && printf "\033[0;90m💿 %s\033[0m\n" "$album"
+            '
+            disco_sel=$(cat "$disco_cache" \
+                | fzf --prompt="  🔍 Discography: " \
+                      --header="  🎤  ${artist_name} — full discography  ·  TAB multi-select" \
+                      --border=rounded --layout=reverse --height=85% \
+                      --multi \
+                      --delimiter=" ::: " --with-nth=1 \
+                      --preview="$_disco_preview" \
+                      --bind "resize:execute-silent(rm -f /tmp/vid-cli-sp-thumbs/.last_img_key 2>/dev/null)+refresh-preview" \
+                      --preview-window="right:25%:wrap" \
+                      --color="prompt:#1db954,pointer:#1db954,hl:#1db954,hl+:#1db954,header:#888888") || continue
+
+            [[ -z "$disco_sel" ]] && continue
+            local ext dest_dir
+            ext=$(pick_format)        || continue
+            dest_dir=$(pick_dest_dir) || continue
+            _queue_lines "$disco_sel" "$artist_name" "" "" "$ext" "$dest_dir"
+            continue
+        fi
+
+        if echo "$selected" | grep -q "download_top"; then
+            local ext dest_dir
+            ext=$(pick_format)        || continue
+            dest_dir=$(pick_dest_dir) || continue
+            _queue_lines "$top_lines" "$artist_name" "" "" "$ext" "$dest_dir"
+            continue
+        fi
+
+        if [[ "$sel_type" == "album" ]]; then
+            music_album_page "$(echo "$selected" | awk -F' ::: ' '{print $3}')"
+            continue
+        fi
+
+        local ext dest_dir
+        ext=$(pick_format)        || continue
+        dest_dir=$(pick_dest_dir) || continue
+        _queue_lines "$selected" "$artist_name" "" "" "$ext" "$dest_dir"
+        continue
+    done
+}
+
+music_open() {
+    local line="$1"
+    local type id
+    type=$(_fld "$line" 2)
+    id=$(_fld   "$line" 3)
+    case "$type" in
+        artist)   music_artist_page   "$id" ;;
+        album)    music_album_page    "$id" ;;
+        playlist) music_playlist_page "$id" ;;
+        track)
+            local tname tartist timg
+            local ext dest_dir
+            ext=$(pick_format)        || return 0
+            dest_dir=$(pick_dest_dir) || return 0
+            _queue_lines "$line" "$(_fld "$line" 5 | sed 's/ ·.*//')" "" "" "$ext" "$dest_dir"
+            ;;
+    esac
+}
+
+# =============================================================================
+# YOUTUBE CHANNEL / PLAYLIST BROWSE
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+# Extract field N (1-based) from a " ::: "-delimited fzf line
+_fld() { printf '%s' "$1" | awk -F' ::: ' "{print \$$2}"; }
+
+# Extract clean track title from field 1: strip leading space, collapse
+# repeated spaces, drop " ·  rest" suffix
+_track_name() { printf '%s' "$1" | awk -F' ::: ' '{print $1}' | sed 's/^[[:space:]]*//' | sed 's/  */ /g' | sed 's/ ·.*//'; }
+
+# Queue every newline-separated line from $1 for download.
+# $1=lines $2=fallback_artist $3=album $4=fallback_cover $5=ext $6=dest_dir
+_queue_lines() {
+    local _lines="$1" _artist="$2" _album="$3" _cover="$4" _ext="$5" _dest="$6"
+    while IFS= read -r _l; do
+        local _tid _tname _tart _timg
+        _tid=$(_fld  "$_l" 3)
+        _tname=$(_track_name "$_l")
+        _tart=$(_fld "$_l" 5)
+        _timg=$(_fld "$_l" 4)
+        [[ -z "$_tid" ]] && continue
+        local _a="${_tart:-$_artist}"
+        local _c="${_timg:-$_cover}"
+        queue_download "${_tname} — ${_a}" "$_a" "$_tname" "$_album" "$_c" "$_ext" "$_dest" "$_tid"
+    done <<< "$_lines"
+}
+
+# Shared fzf browser for YouTube video line lists.
+# $1=header  $2=lines — prints selected line; returns 1 on ESC.
+_yt_video_fzf() {
+    local _hdr="$1" _lines="$2"
+    printf '%s' "$_lines"         | fzf --prompt="  ❯ "               --header="  ${_hdr}"               --border=rounded --layout=reverse --height=85%               --delimiter=" ::: " --with-nth=1,2               --preview="$PREVIEW_SCRIPT"               --bind "resize:execute-silent(rm -f /tmp/vid-cli-thumbs/.last_img_key 2>/dev/null)+refresh-preview"               --preview-window="right:40%:wrap"               --color="prompt:#00afff,pointer:#00afff,hl:#00afff,hl+:#00afff,header:#888888"
+}
+
+# Clears any kitty/iTerm inline image left on screen by fzf preview
+_clear_graphics() {
+    printf "\033_Ga=d\033\\"
+    printf "\033[H\033[2J\033[3J"
+}
+
+# Show a thumbnail above current cursor position given a URL
+_show_thumb() {
+    local url="$1" size="${2:-60x15}"
+    [[ -z "$url" || "$url" == "NA" || "$url" == "None" ]] && return 0
+    local key tfile
+    key=$(printf '%s' "$url" | md5sum | cut -d" " -f1)
+    tfile="/tmp/vid-cli-thumbs/${key}.jpg"
+    mkdir -p /tmp/vid-cli-thumbs
+    [[ ! -s "$tfile" ]] && curl -s --max-time 8 "$url" -o "$tfile" 2>/dev/null
+    [[ -s "$tfile" ]] && chafa --size="$size" "$tfile" 2>/dev/null
+    return 0
+}
+
+# Search/browse YouTube livestreams (live now + past VODs)
+# Helper: pick quality, pick play mode, then stream or download a video.
+# Works for regular videos, VODs, and live streams — no special casing needed.
+_yt_play_video() {
+    local video_id="$1"
+    local video_url="https://www.youtube.com/watch?v=${video_id}"
+
+    local quality
+    quality=$(printf "1. 1080p (FHD)\n2. 720p (HD)\n3. 480p (SD)\n4. 360p (Low)\n5. Best Available\n↩  Cancel" \
+        | launcher "⚙️  Quality: " "12")
+    [[ -z "$quality" || "$quality" == *"Cancel"* ]] && return 1
+
+    # For streaming: use best[height<=N] (pre-merged single stream).
+    # bestvideo+bestaudio requires separate streams to exist, which many YouTube
+    # videos don't have — the + format fails during yt-dlp's -J metadata phase.
+    # For downloads: bestvideo+bestaudio is fine since ffmpeg merges on disk.
+    local format
+    case "$quality" in
+        *1080p*) format="bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" ;;
+        *720p*)  format="bestvideo[height<=720]+bestaudio/best[height<=720]/best"   ;;
+        *480p*)  format="bestvideo[height<=480]+bestaudio/best[height<=480]/best"   ;;
+        *360p*)  format="bestvideo[height<=360]+bestaudio/best[height<=360]/best"   ;;
+        *)       format="bestvideo+bestaudio/best"                                  ;;
+    esac
+
+    local play_mode
+    play_mode=$(printf "  📡  Stream\n  ⬇️   Download and play\n  ↩   Cancel" \
+        | fzf --prompt="  ❯ " --border=rounded --layout=reverse --height=8 --no-info \
+              --color="prompt:#00afff,pointer:#00afff,hl:#00afff,hl+:#00afff")
+    [[ -z "$play_mode" || "$play_mode" == *"Cancel"* ]] && return 1
+
+    case "$play_mode" in
+        *"Stream"*)
+            local mpv_log="/tmp/vid-cli-mpv-$$.log"
+            echo -e "📡 Launching \033[1;32mmpv\033[0m in background..."
+            echo "  Log: $mpv_log"
+            # Build ytdl-raw-options:
+            #   jsi-engine=bun  — forces bun as the JS runtime for yt-dlp's
+            #                     n-challenge solver (deno is broken on this system)
+            # cookies= only appended when the file actually exists and has rows.
+            # Use bun as JS runtime for yt-dlp's n-challenge solver.
+            # Cookies are intentionally omitted from streaming — expired cookies
+            # cause yt-dlp to fail entirely. Run vid-cli --setup to refresh them.
+            # For bot-checked videos, refresh cookies then stream will work.
+            local _ytdl_opts="js-runtimes=bun,remote-components=ejs:npm"
+            mpv --config-dir="$HOME/.config/mpv" \
+                --ytdl-format="$format" \
+                --hwdec=auto-safe \
+                --ytdl-raw-options="$_ytdl_opts" \
+                "$video_url" >"$mpv_log" 2>&1 &
+            local mpv_pid=$!
+            disown $mpv_pid
+            sleep 1
+            if ! kill -0 "$mpv_pid" 2>/dev/null; then
+                echo -e "\033[1;31m❌ mpv failed. Log: $mpv_log\033[0m"
+                grep -v "^$" "$mpv_log" 2>/dev/null | tail -20 | sed "s/^/  /"
+            else
+                echo "✅ mpv launched (pid $mpv_pid) — stream running in background."
+            fi
+            ;;
+        *)
+            local existing_file
+            existing_file=$(find "$DOWNLOAD_DIR" -type f -name "*${video_id}*" ! -name "*.part" | head -n 1)
+            if [[ -n "$existing_file" ]]; then
+                echo -e "✅ Already downloaded: \033[1;32m$(basename "$existing_file")\033[0m"
+            else
+                echo -e "⬇️  Downloading to \033[1;33m$DOWNLOAD_DIR\033[0m..."
+                yt-dlp \
+                    --js-runtimes bun --remote-components ejs:npm \
+                    --format "$format" --merge-output-format mkv \
+                    --output "$DOWNLOAD_DIR/%(title)s [%(id)s].%(ext)s" \
+                    "$video_url"
+                existing_file=$(find "$DOWNLOAD_DIR" -type f -name "*${video_id}*" ! -name "*.part" | head -n 1)
+                [[ -z "$existing_file" ]] && { echo "❌ Download failed."; return 1; }
+                echo -e "✅ Download complete: \033[1;32m$(basename "$existing_file")\033[0m"
+            fi
+            echo -e "▶️  Opening with \033[1;32mmpv\033[0m..."
+            mpv --config-dir="$HOME/.config/mpv" --hwdec=auto-safe "$existing_file" >/dev/null 2>&1
+            echo "✅ Playback finished."
+            ;;
+    esac
+}
+# Browse a YouTube playlist by URL, pick a video.
+youtube_playlist_page() {
+    local playlist_url="$1" playlist_name="${2:-Playlist}"
+    echo -e "\n  \033[0;90mFetching playlist...\033[0m"
+
+    local lines
+    lines=$(yt-dlp "${playlist_url}" \
+        $(_cookies_arg) \
+        --flat-playlist \
+        --print "%(title)s|||%(uploader)s|||%(id)s|||%(duration_string)s" \
+        2>/dev/null | python3 -c "
+import sys
+for i, line in enumerate(sys.stdin, 1):
+    line = line.strip()
+    if not line: continue
+    parts = line.split('|||')
+    if len(parts) < 3: continue
+    title, uploader, vid_id = parts[0], parts[1], parts[2]
+    dur = parts[3] if len(parts) > 3 else ''
+    meta = ' · '.join(p for p in [uploader, dur] if p)
+    thumb = f'https://img.youtube.com/vi/{vid_id}/maxresdefault.jpg'
+    print(f'  {i:03d}  {title} ::: {meta} ::: {vid_id} ::: video ::: {thumb}')
+")
+
+    [[ -z "$lines" ]] && { echo -e "  \033[1;31m❌ Could not load playlist.\033[0m\n"; return 1; }
+
+    while true; do
+        local selected
+        selected=$(_yt_video_fzf "📋  ${playlist_name}" "$lines") || { _clear_graphics; return 0; }
+        _clear_graphics
+        local vid_id; vid_id=$(_fld "$selected" 3)
+        [[ -z "$vid_id" ]] && continue
+        _yt_play_video "$vid_id"
+    done
+}
+
+# Browse a YouTube channel: shows recent videos + playlists tab.
+# $1 = channel URL, $2 = channel name, $3 = thumbnail URL (optional)
+youtube_channel_page() {
+    local channel_url="$1" channel_name="${2:-Channel}" channel_thumb="${3:-}"
+
+    echo -e "\n  \033[0;90mLoading ${channel_name}...\033[0m"
+
+    # Parallel fetch: live check, recent videos, recent VODs, playlists
+    local tf_live tf_vids tf_vods tf_pls
+    tf_live=$(mktemp /tmp/vid-cli-ch-XXXXXX.txt)
+    tf_vids=$(mktemp /tmp/vid-cli-ch-XXXXXX.txt)
+    tf_vods=$(mktemp /tmp/vid-cli-ch-XXXXXX.txt)
+    tf_pls=$(mktemp /tmp/vid-cli-ch-XXXXXX.txt)
+
+    # /streams tab: first entry tells us if live; rest are past VODs
+    yt-dlp "${channel_url}/streams" \
+        $(_cookies_arg) --flat-playlist -I 1:6 \
+        --print "%(title)s|||%(upload_date)s|||%(id)s|||%(duration_string)s|||%(is_live)s" \
+        2>/dev/null > "$tf_vods" & _p1=$!
+
+    yt-dlp "${channel_url}/videos" \
+        $(_cookies_arg) --flat-playlist -I 1:10 \
+        --print "%(title)s|||%(upload_date)s|||%(id)s|||%(duration_string)s|||%(is_live)s" \
+        2>/dev/null > "$tf_vids" & _p2=$!
+
+    yt-dlp "${channel_url}/playlists" \
+        $(_cookies_arg) --flat-playlist \
+        --print "%(title)s|||%(id)s|||%(playlist_count)s|||%(thumbnail)s" \
+        2>/dev/null > "$tf_pls" & _p3=$!
+
+    wait $_p1 $_p2 $_p3
+
+    # Cache key for full-video search (per channel URL)
+    local all_vids_cache
+    all_vids_cache="/tmp/vid-cli-allvids-$(echo "$channel_url" | md5sum | cut -c1-12).txt"
+
+    # Build combined list
+    local full_list
+    full_list=$(python3 - "$tf_vids" "$tf_vods" "$tf_pls" << 'PYEOF'
+import sys
+
+tf_vids, tf_vods, tf_pls = sys.argv[1], sys.argv[2], sys.argv[3]
+
+def parse_vid_line(line, idx):
+    parts = line.strip().split("|||")
+    if len(parts) < 3: return None, None
+    title  = parts[0]
+    date   = parts[1]
+    vid_id = parts[2]
+    dur    = parts[3] if len(parts) > 3 else ""
+    is_live = parts[4].strip() if len(parts) > 4 else ""
+    d = date.strip()
+    sort_key = d  # raw YYYYMMDD — reliable sort key before formatting
+    if len(d) == 8: d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    meta = " · ".join(p for p in [d, dur] if p and p not in ("NA","None",""))
+    thumb = f"https://img.youtube.com/vi/{vid_id}/maxresdefault.jpg"
+    return vid_id, (title, meta, vid_id, thumb, is_live, sort_key)
+
+lines   = []
+live_lines = []
+vid_lines  = []
+seen    = set()
+
+# Process streams tab first — split live from VODs
+vod_lines = []
+with open(tf_vods) as f:
+    for i, line in enumerate(f, 1):
+        vid_id, data = parse_vid_line(line, i)
+        if not vid_id or vid_id in seen: continue
+        seen.add(vid_id)
+        title, meta, vid_id, thumb, is_live, sort_key = data
+        if is_live == "True":
+            live_lines.append(
+                f"  🔴  {title} ::: LIVE NOW ::: {vid_id} ::: video ::: {thumb}")
+        else:
+            vod_lines.append((sort_key, title, meta, vid_id, thumb))
+
+# Regular videos (deduplicated against streams)
+with open(tf_vids) as f:
+    for i, line in enumerate(f, 1):
+        vid_id, data = parse_vid_line(line, i)
+        if not vid_id or vid_id in seen: continue
+        seen.add(vid_id)
+        title, meta, vid_id, thumb, _, sort_key = data
+        vid_lines.append((sort_key, title, meta, vid_id, thumb))
+
+# Merge VODs and regular videos, sort by raw date key (YYYYMMDD) descending
+all_recent = vod_lines + vid_lines
+all_recent.sort(key=lambda x: x[0] or "", reverse=True)
+all_recent = all_recent[:12]
+
+# Assemble output
+lines.append("  🔍  Search all videos ::: search_all ::: search_all ::: action ::: ")
+
+if live_lines:
+    lines.append("  ── 🔴  LIVE ──────────────────────────────── ::: section ::: ::: ::: ")
+    lines.extend(live_lines)
+
+if all_recent:
+    lines.append("  ── 🎬  Recent Videos & VODs ───────────────── ::: section ::: ::: ::: ")
+    for i, (_, title, meta, vid_id, thumb) in enumerate(all_recent, 1):
+        lines.append(f"  {i:02d}  {title} ::: {meta} ::: {vid_id} ::: video ::: {thumb}")
+
+with open(tf_pls) as f:
+    pl_lines = []
+    for line in f:
+        parts = line.strip().split("|||")
+        if len(parts) < 2: continue
+        title, pl_id = parts[0], parts[1]
+        count = parts[2] if len(parts) > 2 else "?"
+        thumb = parts[3] if len(parts) > 3 else ""
+        thumb = "" if thumb in ("NA","None","none") else thumb
+        count_s = f"{count} videos" if count not in ("NA","None","?","") else "Playlist"
+        pl_lines.append(f"  📋  {title} ::: {count_s} ::: {pl_id} ::: playlist ::: {thumb}")
+
+if pl_lines:
+    lines.append("  ── 📋  Playlists ───────────────────────────── ::: section ::: ::: ::: ")
+    lines.extend(pl_lines)
+
+print("\n".join(lines))
+PYEOF
+    )
+    rm -f "$tf_vids" "$tf_vods" "$tf_pls"
+
+    [[ -z "$full_list" ]] && {
+        echo -e "  \033[1;31m❌ Could not load channel.\033[0m"; sleep 1; return 1
+    }
+
+    while true; do
+        local selected
+        selected=$(_yt_video_fzf "📺  ${channel_name}  ·  '/' to search all videos" "$full_list") || {
+            _clear_graphics; return 0
+        }
+        [[ -z "$selected" ]] && { _clear_graphics; return 0; }
+        _clear_graphics
+
+        local sel_type sel_id
+        sel_type=$(_fld "$selected" 4)
+        sel_id=$(_fld   "$selected" 3)
+        [[ "$sel_type" == "section" || -z "$sel_id" ]] && continue
+
+        # ── Search all videos ─────────────────────────────────────────────────
+        if [[ "$sel_type" == "action" && "$sel_id" == "search_all" ]]; then
+            if [[ ! -s "$all_vids_cache" ]]; then
+                echo -e "\n  \033[0;90mFetching full video list (videos + VODs)...\033[0m"
+
+                # Fetch all videos and all streams (VODs) in parallel, merge
+                local tf_allv tf_alls
+                tf_allv=$(mktemp /tmp/vid-cli-ch-XXXXXX.txt)
+                tf_alls=$(mktemp /tmp/vid-cli-ch-XXXXXX.txt)
+
+                yt-dlp "${channel_url}/videos" \
+                    $(_cookies_arg) --flat-playlist \
+                    --print "%(title)s|||%(upload_date)s|||%(id)s|||%(duration_string)s|||%(is_live)s" \
+                    2>/dev/null > "$tf_allv" & _pa1=$!
+
+                yt-dlp "${channel_url}/streams" \
+                    $(_cookies_arg) --flat-playlist \
+                    --print "%(title)s|||%(upload_date)s|||%(id)s|||%(duration_string)s|||%(is_live)s" \
+                    2>/dev/null > "$tf_alls" & _pa2=$!
+
+                wait $_pa1 $_pa2
+
+                python3 - "$tf_allv" "$tf_alls" "$all_vids_cache" << 'PYEOF'
+import sys
+
+tf_allv, tf_alls, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = []
+seen  = set()
+
+def parse(path, mark_vod=False):
+    results = []
+    with open(path) as f:
+        for line in f:
+            parts = line.strip().split("|||")
+            if len(parts) < 3: continue
+            title, date, vid_id = parts[0], parts[1], parts[2]
+            dur     = parts[3] if len(parts) > 3 else ""
+            is_live = parts[4].strip() if len(parts) > 4 else ""
+            if is_live == "True": continue   # skip currently-live in all-videos
+            if vid_id in seen: continue
+            seen.add(vid_id)
+            d = date.strip()
+            if len(d) == 8: d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+            label = "📼 VOD" if (mark_vod and dur in ("NA","None","")) else ""
+            meta  = " · ".join(p for p in [d, dur, label] if p and p not in ("NA","None",""))
+            thumb = f"https://img.youtube.com/vi/{vid_id}/maxresdefault.jpg"
+            results.append((d, title, meta, vid_id, thumb))
+    return results
+
+entries = parse(tf_allv) + parse(tf_alls, mark_vod=True)
+entries.sort(key=lambda x: x[0], reverse=True)  # newest first
+
+output_lines = []
+for i, (_, title, meta, vid_id, thumb) in enumerate(entries, 1):
+    output_lines.append(f"  {i:04d}  {title} ::: {meta} ::: {vid_id} ::: video ::: {thumb}")
+
+result = "\n".join(output_lines)
+print(result)
+with open(out_path, "w") as f:
+    f.write(result + "\n")
+PYEOF
+                rm -f "$tf_allv" "$tf_alls"
+            fi
+
+            if [[ ! -s "$all_vids_cache" ]]; then
+                echo -e "  \033[1;31m❌ Could not load video list.\033[0m"; sleep 1; continue
+            fi
+
+            while true; do
+                local av_sel
+                av_sel=$(_yt_video_fzf "📺  ${channel_name} — all videos & VODs" "$(cat "$all_vids_cache")") || break
+                [[ -z "$av_sel" ]] && break
+                _clear_graphics
+                local av_id; av_id=$(_fld "$av_sel" 3)
+                [[ -n "$av_id" ]] && _yt_play_video "$av_id" || continue
+            done
+            _clear_graphics
+            continue
+        fi
+
+        case "$sel_type" in
+            playlist)
+                youtube_playlist_page "https://www.youtube.com/playlist?list=${sel_id}" "$(_track_name "$selected")"
+                ;;
+            video|*)
+                _yt_play_video "$sel_id" || continue
+                ;;
+        esac
+    done
+}
+
+# =============================================================================
+# DOWNLOAD HELPERS
+# =============================================================================
+
+pick_format() {
+    local fmt
+    fmt=$(printf "  🔷  FLAC  — lossless (recommended)\n  🎧  MP3   — lossy, smallest\n  🔶  WAV   — uncompressed PCM\n  ↩   Cancel" \
+        | fzf --prompt="  ❯ Format: " \
+              --border=rounded --layout=reverse --height=9 --no-info \
+              --color="prompt:#1db954,pointer:#1db954,hl:#1db954,hl+:#1db954")
+    [[ -z "$fmt" || "$fmt" == *"Cancel"* ]] && return 1
+    case "$fmt" in *FLAC*) echo "flac" ;; *MP3*) echo "mp3" ;; *WAV*) echo "wav" ;; esac
+}
+
+pick_dest_dir() {
+    local music_root="${MUSIC_DIR:-$HOME/Music}"
+    mkdir -p "$music_root"
+    local choice
+    choice=$(
+        { echo "  🏠  ${music_root/$HOME\//.~\/} (root)"
+          echo "  ➕  [ New folder ]"
+          find "$music_root" -mindepth 1 -maxdepth 3 -type d 2>/dev/null \
+              | sort | sed "s|$music_root/||"
+        } | fzf --prompt="  ❯ Save to: " \
+                --border=rounded --layout=reverse --height=40% --no-info \
+                --header="  Choose destination" \
+                --color="prompt:#1db954,pointer:#1db954,hl:#1db954,hl+:#1db954")
+    [[ -z "$choice" ]] && return 1
+    if [[ "$choice" == *"(root)"* ]]; then
+        echo "$music_root"
+    elif [[ "$choice" == *"New folder"* ]]; then
+        local new_folder
+        # stty sane + prompt + read all go through /dev/tty because this function
+        # is called inside $() — stdout is captured, not the terminal.
+        stty sane </dev/tty 2>/dev/null || true
+        printf "\n  Folder name (under %s): " "${music_root/$HOME/~}" >/dev/tty
+        read -r new_folder </dev/tty
+        # Strip carriage returns and leading/trailing whitespace
+        new_folder=$(printf '%s' "$new_folder" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [[ -z "$new_folder" || "$new_folder" == */* ]]; then
+            printf "  \033[1;31m❌ Invalid folder name.\033[0m\n" >/dev/tty
+            return 1
+        fi
+        mkdir -p "$music_root/$new_folder" || {
+            printf "  \033[1;31m❌ Could not create folder: %s\033[0m\n" "$new_folder" >/dev/tty
+            return 1
+        }
+        echo "$music_root/$new_folder"
+    else
+        echo "$music_root/$choice"
+    fi
+}
+
+queue_download() {
+    local label="$1" artist="$2" title="$3" album="$4" cover_url="$5" ext="$6" dest_dir="$7" deezer_id="${8:-}"
+    mkdir -p "$dest_dir"
+
+    local log_idx=$(( ${#AUDIO_JOBS[@]} + 1 ))
+    local logfile="/tmp/vid-cli-job${log_idx}.log"
+    local donefile="/tmp/vid-cli-job${log_idx}.done"
+
+    printf "\n  ⬇️  Queued [#%d]: \033[0;37m%s\033[0m [\033[1;36m%s\033[0m]\n" \
+        "$log_idx" "$label" "${ext^^}"
+
+    # Strip leading emoji/icon characters (🎵 🎤 💿 etc.) that bleed in from
+    # the fzf display field. sed: drop any leading non-ASCII and whitespace.
+    local _artist _title _album
+    # Strip leading non-alnum (emoji/icons), then strip a bare track-position
+    # number (e.g. "00 ", "3 ") that bleeds in from the fzf display field,
+    # then trim surrounding whitespace.
+    _title=$(printf '%s' "$title"         | sed 's/^[^[:alnum:]]*//'         | sed 's/^[0-9]\{1,4\}[[:space:]][[:space:]]*//'         | sed 's/^[[:space:]]*//'         | sed 's/[[:space:]]*$//')
+    _artist=$(printf '%s' "$artist"         | sed 's/^[^[:alnum:]]*//'         | sed 's/^[[:space:]]*//'         | sed 's/[[:space:]]*$//')
+    _album="$album"
+    local _cover_url="$cover_url" _ext="$ext" _dest_dir="$dest_dir"
+    local _deezer_id="$deezer_id"
+    local _cookies="--js-runtimes bun --remote-components ejs:npm"
+
+    (
+        # ── 1. Find best YouTube match ────────────────────────────────────────
+        local chosen_id=""
+        local dz_duration=0
+        local dz_explicit=0
+        local isrc=""
+
+        # Fetch ISRC + duration + explicit flag from Deezer in one call
+        if [[ -n "$_deezer_id" ]]; then
+            local dz_meta
+            dz_meta=$(curl -s --max-time 8 "https://api.deezer.com/track/${_deezer_id}" 2>/dev/null)
+            local dz_parsed
+            dz_parsed=$(echo "$dz_meta" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('isrc', ''))
+    print(d.get('duration', 0))
+    print(1 if d.get('explicit_lyrics', False) else 0)
+except: pass
+" 2>/dev/null)
+            isrc=$(echo "$dz_parsed"        | sed -n '1p')
+            dz_duration=$(echo "$dz_parsed" | sed -n '2p')
+            dz_explicit=$(echo "$dz_parsed" | sed -n '3p')
+            dz_duration=${dz_duration:-0}
+            dz_explicit=${dz_explicit:-0}
+            echo "Deezer: ISRC=$isrc duration=${dz_duration}s explicit=${dz_explicit}" >> "$logfile"
+        fi
+
+        # Scorer — reads candidate lines from stdin, picks best match.
+        # argv: target_dur  is_explicit  artist  title  [album]
+        # stdin: vid_id|||title|||channel|||duration_seconds
+        local _score_py
+        _score_py=$(cat << 'SCOREEOF'
+import sys, re, unicodedata
+
+target_dur  = int(sys.argv[1]) if sys.argv[1].isdigit() else 0
+is_explicit = sys.argv[2] == "1"
+artist      = sys.argv[3].lower().strip()
+title_s     = sys.argv[4].lower().strip()
+album_s     = sys.argv[5].lower().strip() if len(sys.argv) > 5 else ""
+
+def norm(s):
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r"[^\w\s]", " ", s.lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+def sig_words(s):
+    stops = {"the","a","an","of","in","on","at","to","for","ft","feat",
+             "with","by","and","or","is","it","my","your","from","be","was"}
+    return {w for w in norm(s).split() if len(w) > 1 and w not in stops}
+
+target_words  = sig_words(title_s)
+artist_words  = sig_words(artist)
+album_words   = sig_words(album_s)
+
+# Words that always disqualify unless they appear in the real title
+bad = {"live","remix","cover","karaoke","instrumental",
+       "acoustic","session","concert","tour","tribute","mashup"}
+penalise = {w for w in bad if w not in norm(title_s)}
+
+def dur_score(yt_dur, target):
+    if not target or not yt_dur:
+        return 0, False
+    try:
+        diff = abs(int(yt_dur) - target)
+    except ValueError:
+        return 0, False
+    if diff <= 3:  return 70, False
+    if diff <= 8:  return 40, False
+    if diff <= 20: return 10, False
+    if diff <= 45: return -40, False
+    return 0, True   # hard reject
+
+def artist_in_title(vtitle_words):
+    # All artist sig-words must appear in the video title
+    if not artist_words:
+        return False
+    return artist_words <= vtitle_words
+
+def title_score(vtitle, vtitle_words):
+    nt = norm(title_s)
+    if not target_words:
+        return 10  # single-word or stop-word-only titles get a small pass
+    overlap = target_words & vtitle_words
+    pct     = len(overlap) / len(target_words)
+    if nt in vtitle:                return 70  # exact normalised match
+    if pct >= 1.0:                  return 50  # all sig words present
+    if pct >= 0.75:                 return 30  # most words present
+    if pct >= 0.5:                  return 15  # half present
+    if pct >  0:                    return  5  # weak overlap
+    return -30                                 # zero overlap (very bad)
+
+print(
+    f"SCORER target={repr(title_s)} artist={repr(artist)} "
+    f"dur={target_dur}s explicit={is_explicit} album={repr(album_s)}",
+    file=sys.stderr
+)
+
+best_id, best_score = None, -9999
+
+for line in sys.stdin:
+    parts = line.strip().split("|||")
+    if len(parts) < 3:
+        continue
+    vid_id    = parts[0]
+    raw_title = parts[1]
+    channel   = parts[2].lower()
+    yt_dur    = parts[3].strip() if len(parts) > 3 else ""
+
+    vtitle       = norm(raw_title)
+    vtitle_words = sig_words(vtitle)
+
+    # ── Duration gate ────────────────────────────────────────────────────────
+    dur_delta, hard_reject = dur_score(yt_dur, target_dur)
+    if hard_reject:
+        print(f"  REJECT dur({yt_dur}s vs {target_dur}s): {vid_id} | {raw_title[:60]}", file=sys.stderr)
+        continue
+
+    # ── Title gate — ALL candidates must have some title overlap ─────────────
+    # (previously Topic/Vevo bypassed this — that was the main bug)
+    ts = title_score(vtitle, vtitle_words)
+    if ts <= 0 and not ("- topic" in channel or "vevo" in channel):
+        print(f"  REJECT title-gate: {vid_id} | {raw_title[:60]} | {channel}", file=sys.stderr)
+        continue
+    # Even trusted channels need *some* overlap
+    if ts < -10:
+        print(f"  REJECT title-gate(trusted): {vid_id} | {raw_title[:60]} | {channel}", file=sys.stderr)
+        continue
+
+    score = dur_delta + ts
+
+    # ── Channel bonuses ──────────────────────────────────────────────────────
+    is_topic = "- topic" in channel
+    if is_topic:              score += 80   # was 100 and bypassed word gate
+    if "vevo" in channel:     score += 30
+    if "official" in channel: score += 12
+
+    # ── Artist presence in video title ──────────────────────────────────────
+    if artist_in_title(vtitle_words):
+        score += 25
+    elif artist_words and artist_words & vtitle_words:
+        score += 10   # partial artist match
+
+    # ── Artist - Title pattern ───────────────────────────────────────────────
+    na, nt2 = norm(artist), norm(title_s)
+    if f"{na} - {nt2}" in vtitle or f"{nt2} - {na}" in vtitle:
+        score += 20
+
+    # ── Album context bonus ──────────────────────────────────────────────────
+    if album_words and album_words <= vtitle_words:
+        score += 15
+
+    # ── Official audio/video small bonus ─────────────────────────────────────
+    if "official audio" in vtitle:   score += 10
+    elif "official video" in vtitle: score +=  5
+
+    # ── Explicit / clean mismatch ────────────────────────────────────────────
+    if is_explicit and "clean" in vtitle:                      score -= 60
+    if not is_explicit and re.search(r"\bexplicit\b", vtitle): score -= 25
+
+    # ── Bad variant penalties ────────────────────────────────────────────────
+    for w in penalise:
+        if re.search(r"\b" + re.escape(w) + r"\b", vtitle):
+            score -= 60
+
+    # Small penalty for very long titles (often compilations)
+    score -= len(vtitle) * 0.03
+
+    print(f"  CANDIDATE score={score:.0f}: {vid_id} | {raw_title[:60]} | {channel}", file=sys.stderr)
+
+    if score > best_score:
+        best_score, best_id = score, vid_id
+
+# ── Minimum score floor — refuse garbage rather than pick least bad ──────────
+MIN_SCORE = 20
+if best_id and best_score >= MIN_SCORE:
+    print(f"  WINNER score={best_score:.0f}: {best_id}", file=sys.stderr)
+    print(best_id)
+else:
+    reason = f"best_score={best_score:.0f} < floor={MIN_SCORE}" if best_id else "no candidates"
+    print(f"  NO_WINNER ({reason})", file=sys.stderr)
+SCOREEOF
+)
+
+
+        # Helper: filter raw yt-dlp output to video entries only.
+        # ytsearch with --flat-playlist can return EP/album playlist entries
+        # whose IDs are longer than 11 chars (PLxxxxxxx). Drop them.
+        _filter_videos() {
+            python3 -c "
+import sys, re
+for line in sys.stdin:
+    parts = line.strip().split('|||')
+    if not parts or not parts[0]: continue
+    vid_id = parts[0]
+    if re.fullmatch(r'[A-Za-z0-9_-]{11}', vid_id):
+        print(line, end='')
+    else:
+        print(f'  SKIP non-video id={vid_id}', file=sys.stderr)
+" 2>>"$logfile"
+        }
+
+        # ── Strategy 0: ISRC (globally unique — most reliable signal) ────────
+        # Run this first; only proceed to broader search if it fails.
+        if [[ -n "$isrc" ]]; then
+            local s0_raw s0_candidates
+            s0_raw=$(yt-dlp \
+                $_cookies \
+                --flat-playlist \
+                --print "%(id)s|||%(title)s|||%(channel)s|||%(duration)s" \
+                "ytsearch5:${isrc}" 2>>"$logfile")
+            echo "S0(ISRC) raw=$(echo "$s0_raw" | grep -c .)" >> "$logfile"
+            s0_candidates=$(echo "$s0_raw" | _filter_videos)
+            echo "S0(ISRC) videos=$(echo "$s0_candidates" | grep -c .)" >> "$logfile"
+            if [[ -n "$s0_candidates" ]]; then
+                chosen_id=$(echo "$s0_candidates" \
+                    | python3 -c "$_score_py" \
+                        "$dz_duration" "$dz_explicit" "$_artist" "$_title" "$_album" \
+                        2>>"$logfile")
+                [[ -n "$chosen_id" ]] && echo "S0 winner: $chosen_id" >> "$logfile"
+            fi
+        fi
+
+        # ── Strategy 1: Artist + title, 25 results ───────────────────────────
+        if [[ -z "$chosen_id" ]]; then
+            local s1_raw s1_candidates
+            s1_raw=$(yt-dlp \
+                $_cookies \
+                --flat-playlist \
+                --print "%(id)s|||%(title)s|||%(channel)s|||%(duration)s" \
+                "ytsearch25:${_artist} ${_title}" \
+                2>>"$logfile")
+            echo "S1 raw=$(echo "$s1_raw" | grep -c .)" >> "$logfile"
+            s1_candidates=$(echo "$s1_raw" | _filter_videos)
+            echo "S1 videos=$(echo "$s1_candidates" | grep -c .)" >> "$logfile"
+            if [[ -n "$s1_candidates" ]]; then
+                chosen_id=$(echo "$s1_candidates" \
+                    | python3 -c "$_score_py" \
+                        "$dz_duration" "$dz_explicit" "$_artist" "$_title" "$_album" \
+                        2>>"$logfile")
+                [[ -n "$chosen_id" ]] && echo "S1 winner: $chosen_id" >> "$logfile"
+            fi
+        fi
+
+        # ── Strategy 2: Add album to query (helps disambiguation) ────────────
+        if [[ -z "$chosen_id" && -n "$_album" ]]; then
+            local s2_raw s2_candidates
+            s2_raw=$(yt-dlp \
+                $_cookies \
+                --flat-playlist \
+                --print "%(id)s|||%(title)s|||%(channel)s|||%(duration)s" \
+                "ytsearch15:${_artist} ${_title} ${_album}" \
+                2>>"$logfile")
+            echo "S2(album) raw=$(echo "$s2_raw" | grep -c .)" >> "$logfile"
+            s2_candidates=$(echo "$s2_raw" | _filter_videos)
+            echo "S2(album) videos=$(echo "$s2_candidates" | grep -c .)" >> "$logfile"
+            if [[ -n "$s2_candidates" ]]; then
+                chosen_id=$(echo "$s2_candidates" \
+                    | python3 -c "$_score_py" \
+                        "$dz_duration" "$dz_explicit" "$_artist" "$_title" "$_album" \
+                        2>>"$logfile")
+                [[ -n "$chosen_id" ]] && echo "S2 winner: $chosen_id" >> "$logfile"
+            fi
+        fi
+
+        # ── Strategy 3: Broad fallback — relax duration hard-reject ──────────
+        if [[ -z "$chosen_id" ]]; then
+            local s3_raw s3_candidates
+            s3_raw=$(yt-dlp \
+                $_cookies \
+                --flat-playlist \
+                --print "%(id)s|||%(title)s|||%(channel)s|||%(duration)s" \
+                "ytsearch30:${_artist} ${_title}" \
+                2>>"$logfile")
+            echo "S3 raw=$(echo "$s3_raw" | grep -c .)" >> "$logfile"
+            s3_candidates=$(echo "$s3_raw" | _filter_videos)
+            echo "S3 videos=$(echo "$s3_candidates" | grep -c .)" >> "$logfile"
+            if [[ -z "$s3_candidates" ]]; then
+                echo "NO_RESULTS" >> "$logfile"
+                echo "FAILED" > "$donefile"
+                exit 1
+            fi
+            # Pass dur=0 so hard-reject never fires but scoring still penalises drift
+            chosen_id=$(echo "$s3_candidates" \
+                | python3 -c "$_score_py" \
+                    "0" "$dz_explicit" "$_artist" "$_title" "$_album" \
+                    2>>"$logfile")
+            [[ -n "$chosen_id" ]] && echo "S3 winner: $chosen_id" >> "$logfile"
+        fi
+
+                if [[ -z "$chosen_id" ]]; then
+            echo "NO_MATCH_FOUND" >> "$logfile"
+            echo "FAILED" > "$donefile"
+            exit 1
+        fi
+
+        # Guard: video IDs are exactly 11 chars. If scorer somehow returned
+        # something else (playlist ID etc), fail cleanly rather than download wrong.
+        if [[ ${#chosen_id} -ne 11 ]]; then
+            echo "INVALID_VIDEO_ID: $chosen_id" >> "$logfile"
+            echo "FAILED" > "$donefile"
+            exit 1
+        fi
+        echo "Selected video: https://www.youtube.com/watch?v=${chosen_id}" >> "$logfile"
+
+        # ── 2. Download audio ─────────────────────────────────────────────────
+        local safe_title safe_artist
+        safe_title=$(echo "$_title"  | tr '/:*?"<>|\\' '_')
+        safe_artist=$(echo "$_artist" | tr '/:*?"<>|\\' '_')
+        local out_template="${_dest_dir}/${safe_artist} - ${safe_title}.%(ext)s"
+
+        yt-dlp \
+            $_cookies \
+            --extract-audio \
+            --audio-format "$_ext" \
+            --audio-quality 0 \
+            --output "${out_template}" \
+            --no-playlist \
+            "https://www.youtube.com/watch?v=${chosen_id}" \
+            >> "$logfile" 2>&1
+
+        if [[ $? -ne 0 ]]; then
+            echo "FAILED" > "$donefile"
+            exit 1
+        fi
+
+        # ── 3. Locate the downloaded file ─────────────────────────────────────
+        local found
+        found=$(find "$_dest_dir" -maxdepth 1 \
+            -name "${safe_artist} - ${safe_title}.*" \
+            ! -name "*.part" ! -name "*.ytdl" ! -name "*.tmp" \
+            2>/dev/null | head -1)
+
+        if [[ -z "$found" || ! -f "$found" ]]; then
+            echo "FILE_NOT_FOUND" >> "$logfile"
+            echo "FAILED" > "$donefile"
+            exit 1
+        fi
+
+        # ── 4. Fetch cover art ────────────────────────────────────────────────
+        local cover_file="/tmp/vid-cli-cover-${log_idx}.jpg"
+        if [[ -n "$_cover_url" ]]; then
+            local cover_xl="${_cover_url/cover_medium/cover_xl}"
+            curl -s --max-time 15 "$cover_xl" -o "$cover_file" 2>/dev/null
+            [[ ! -s "$cover_file" ]] && \
+                curl -s --max-time 15 "$_cover_url" -o "$cover_file" 2>/dev/null
+        fi
+        # Fallback: query Deezer to get cover when none was provided or fetch failed
+        if [[ ! -s "$cover_file" ]]; then
+            local dz_q
+            dz_q=$(python3 -c \
+                "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" \
+                "${_artist} ${_title}" 2>/dev/null)
+            local dz_cover
+            dz_cover=$(curl -s --max-time 8 \
+                "https://api.deezer.com/search/track?q=${dz_q}&limit=1" \
+                2>/dev/null | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+tracks = d.get('data', [])
+if tracks:
+    t = tracks[0]
+    img = (t.get('album') or {}).get('cover_xl') \
+       or (t.get('album') or {}).get('cover_medium', '')
+    print(img)
+" 2>/dev/null)
+            [[ -n "$dz_cover" ]] && \
+                curl -s --max-time 15 "$dz_cover" -o "$cover_file" 2>/dev/null
+        fi
+
+        # ── 5. Embed metadata + cover art (format-specific) ───────────────────
+        # Embed metadata — metaflac for FLAC, ffmpeg -c copy for MP3/WAV
+        local _tmp="${found}.tmp"
+        case "$_ext" in
+            flac)
+                metaflac --remove-all-tags "$found" 2>>"$logfile"
+                metaflac --set-tag="TITLE=${_title}"   "$found" 2>>"$logfile"
+                metaflac --set-tag="ARTIST=${_artist}" "$found" 2>>"$logfile"
+                [[ -n "$_album" ]] &&                     metaflac --set-tag="ALBUM=${_album}" "$found" 2>>"$logfile"
+                [[ -s "$cover_file" ]] &&                     metaflac --import-picture-from="3||||${cover_file}"                         "$found" 2>>"$logfile"
+                ;;
+            mp3)
+                # ffmpeg -c copy embeds ID3 tags without re-encoding
+                local _fargs=(-i "$found" -map 0 -c copy
+                    -metadata "title=${_title}"
+                    -metadata "artist=${_artist}")
+                [[ -n "$_album" ]] && _fargs+=(-metadata "album=${_album}")
+                [[ -s "$cover_file" ]] &&                     _fargs+=(-i "$cover_file" -map 0 -map 1                              -metadata:s:v title="Album cover"                              -metadata:s:v comment="Cover (front)")
+                ffmpeg -loglevel error "${_fargs[@]}" "$_tmp" >> "$logfile" 2>&1                     && mv "$_tmp" "$found" || rm -f "$_tmp"
+                ;;
+            *)
+                # WAV/other: ffmpeg for metadata
+                ffmpeg -loglevel error                     -i "$found" -map 0 -c copy                     -metadata "title=${_title}"                     -metadata "artist=${_artist}"                     ${_album:+-metadata "album=${_album}"}                     "$_tmp" >> "$logfile" 2>&1                     && mv "$_tmp" "$found" || rm -f "$_tmp"
+                ;;
+        esac
+
+        rm -f "$cover_file"
+        echo "OK" > "$donefile"
+        exit 0
+    ) &
+
+    AUDIO_JOBS+=("$!|$label|$dest_dir|$ext|$logfile|$donefile")
+}
+
+# =============================================================================
+# AUDIO DOWNLOAD FLOW
+# =============================================================================
+# Direct YouTube audio search — user sees raw results and picks the exact source
+_yt_audio_search() {
+    local _yt_search_preview
+    _yt_search_preview='
+        title=$(echo {} | awk -F" ::: " "{print \$1}" | sed "s/^[[:space:]]*//")
+        meta=$(echo {}  | awk -F" ::: " "{print \$2}")
+        thumb=$(echo {} | awk -F" ::: " "{print \$5}")
+        printf "\033[1;37m%s\033[0m\n\033[0;90m%s\033[0m\n\n" "$title" "$meta"
+        if [ -n "$thumb" ] && [ "$thumb" != "NA" ] && [ "$thumb" != "None" ]; then
+            cache_dir="/tmp/vid-cli-sp-thumbs"
+            mkdir -p "$cache_dir"
+            key=$(echo "$thumb" | md5sum | cut -d" " -f1)
+            cache_file="$cache_dir/${key}.jpg"
+            [ ! -f "$cache_file" ] && curl -s --max-time 8 "$thumb" -o "$cache_file" 2>/dev/null
+            [ -s "$cache_file" ] && chafa --size="${FZF_PREVIEW_COLUMNS}x$((FZF_PREVIEW_LINES-5))" "$cache_file" 2>/dev/null
+        fi
+    '
+
+    # Write the YouTube search script (reuses yt-dlp ytsearch:)
+    local _yt_aud_script="/tmp/vid-cli-yt-aud-search.sh"
+    cat > "$_yt_aud_script" << 'SEARCHEOF'
+#!/bin/bash
+query="$1"
+[[ ${#query} -lt 2 ]] && exit 0
+cache_q="/tmp/vid-cli-ytaud-last-query"
+cache_f="/tmp/vid-cli-ytaud-cache.txt"
+if [[ -f "$cache_q" && -f "$cache_f" ]]; then
+    [[ "$(cat "$cache_q")" == "$query" ]] && cat "$cache_f" && exit 0
+fi
+yt-dlp     --flat-playlist     --print "%(id)s|||%(title)s|||%(channel)s|||%(duration_string)s|||%(thumbnail)s"     "ytsearch20:${query}" 2>/dev/null | python3 -c "
+import sys, re
+for line in sys.stdin:
+    parts = line.strip().split('|||')
+    if len(parts) < 2: continue
+    vid_id = parts[0]
+    if not re.fullmatch(r'[A-Za-z0-9_-]{11}', vid_id): continue
+    title  = parts[1]
+    ch     = parts[2] if len(parts) > 2 else ''
+    dur    = parts[3] if len(parts) > 3 else ''
+    thumb  = parts[4] if len(parts) > 4 else ''
+    thumb  = '' if thumb in ('NA','None','none') else thumb
+    if not thumb and vid_id:
+        thumb = f'https://img.youtube.com/vi/{vid_id}/maxresdefault.jpg'
+    meta = ' · '.join(p for p in [ch, dur] if p and p not in ('NA','None'))
+    print(f'  🎬  {title} ::: {meta} ::: {vid_id} ::: ytvideo ::: {thumb}')
+" | tee "$cache_f"
+echo "$query" > "$cache_q"
+SEARCHEOF
+    chmod +x "$_yt_aud_script"
+
+    local yt_sel
+    yt_sel=$(: | fzf         --prompt="  🔍 Search YouTube: "         --header="  Type to search YouTube directly — pick the exact source to download"         --border=rounded --layout=reverse --height=85%         --disabled         --delimiter=" ::: " --with-nth=1,2         --preview="$_yt_search_preview"         --preview-window="right:40%:wrap"         --color="prompt:#ff6600,pointer:#ff6600,hl:#ff6600,hl+:#ff6600,header:#888888"         --bind "change:reload:bash $_yt_aud_script {q}"         --bind "start:reload:cat /tmp/vid-cli-ytaud-cache.txt 2>/dev/null || true"         --bind "resize:execute-silent(rm -f /tmp/vid-cli-sp-thumbs/.last_img_key 2>/dev/null)+refresh-preview") || { _clear_graphics; return; }
+
+    _clear_graphics
+    [[ -z "$yt_sel" ]] && return
+
+    local vid_id vid_title
+    vid_id=$(_fld "$yt_sel" 3)
+    vid_title=$(_track_name "$yt_sel")
+    [[ -z "$vid_id" ]] && return
+
+    local ext dest_dir
+    ext=$(pick_format)        || return
+    dest_dir=$(pick_dest_dir) || return
+
+    local log_idx=$(( ${#AUDIO_JOBS[@]} + 1 ))
+    local logfile="/tmp/vid-cli-job${log_idx}.log"
+    local donefile="/tmp/vid-cli-job${log_idx}.done"
+
+    printf "\n  ⬇️  Queued [#%d]: \033[0;37m%s\033[0m [\033[1;36m%s\033[0m]\n" \
+        "$log_idx" "$vid_title" "${ext^^}"
+
+    local _vid_id="$vid_id" _vid_title="$vid_title"
+    local _vid_cookies="--js-runtimes bun --remote-components ejs:npm"
+    local safe_title
+    local _vid_ext="$ext" _vid_dest="$dest_dir"
+    safe_title=$(echo "$vid_title" | tr '/:*?"<>|\\' '_')
+
+    # Ensure destination exists before backgrounding — the subshell cannot prompt
+    mkdir -p "$_vid_dest" || {
+        echo -e "  \033[1;31m❌ Could not create destination: $_vid_dest\033[0m"
+        return 1
+    }
+
+    (
+        # ── 1. Fetch yt-dlp metadata (title, channel, thumbnail URL) ──────────
+        # Use separate --print flags so each value is on its own line —
+        # avoids awk -F'|||' which treats ||| as a regex and splits wrong.
+        local yt_meta
+        yt_meta=$(yt-dlp --no-playlist \
+            --print "%(title)s" \
+            --print "%(channel)s" \
+            --print "%(thumbnail)s" \
+            "https://www.youtube.com/watch?v=${_vid_id}" 2>/dev/null)
+        local yt_title yt_channel yt_thumb
+        yt_title=$(printf '%s' "$yt_meta"   | sed -n '1p')
+        yt_channel=$(printf '%s' "$yt_meta" | sed -n '2p')
+        yt_thumb=$(printf '%s' "$yt_meta"   | sed -n '3p')
+        # Fall back to user-visible title if yt-dlp returns nothing
+        yt_title="${yt_title:-$_vid_title}"
+        yt_channel="${yt_channel:-}"
+
+        # ── 2. Download audio ─────────────────────────────────────────────────
+        yt-dlp \
+            $_vid_cookies \
+            --extract-audio \
+            --audio-format "$_vid_ext" \
+            --audio-quality 0 \
+            --output "${_vid_dest}/${safe_title}.%(ext)s" \
+            --no-playlist \
+            "https://www.youtube.com/watch?v=${_vid_id}" \
+            >> "$logfile" 2>&1
+
+        if [[ $? -ne 0 ]]; then
+            echo "FAILED" > "$donefile"; exit 1
+        fi
+
+        # ── 3. Locate downloaded file ─────────────────────────────────────────
+        local found
+        found=$(find "$_vid_dest" -maxdepth 1 \
+            -name "${safe_title}.*" \
+            ! -name "*.part" ! -name "*.ytdl" ! -name "*.tmp" \
+            2>/dev/null | head -1)
+
+        if [[ -z "$found" || ! -f "$found" ]]; then
+            echo "FILE_NOT_FOUND" >> "$logfile"
+            echo "FAILED" > "$donefile"; exit 1
+        fi
+
+        # ── 4. Fetch cover art ────────────────────────────────────────────────
+        # Use the YouTube thumbnail; try maxres → hq fallback
+        local cover_file="/tmp/vid-cli-cover-${log_idx}.jpg"
+        if [[ -n "$yt_thumb" && "$yt_thumb" != "NA" ]]; then
+            curl -s --max-time 15 "$yt_thumb" -o "$cover_file" 2>/dev/null
+        fi
+        # If thumbnail fetch failed, try the standard maxres URL
+        if [[ ! -s "$cover_file" ]]; then
+            curl -s --max-time 10 \
+                "https://img.youtube.com/vi/${_vid_id}/maxresdefault.jpg" \
+                -o "$cover_file" 2>/dev/null
+            [[ ! -s "$cover_file" ]] && \
+                curl -s --max-time 10 \
+                    "https://img.youtube.com/vi/${_vid_id}/hqdefault.jpg" \
+                    -o "$cover_file" 2>/dev/null
+        fi
+
+        # ── 5. Embed metadata + cover (same logic as queue_download) ──────────
+        local tmp="${found}.tmp"
+        local _tmp="${found}.tmp"
+        case "$_vid_ext" in
+            flac)
+                metaflac --remove-all-tags "$found" 2>>"$logfile"
+                metaflac --set-tag="TITLE=${yt_title}"    "$found" 2>>"$logfile"
+                metaflac --set-tag="ARTIST=${yt_channel}" "$found" 2>>"$logfile"
+                [[ -s "$cover_file" ]] && \
+                    metaflac --import-picture-from="3||||${cover_file}" \
+                        "$found" 2>>"$logfile"
+                ;;
+            mp3)
+                local _fargs=(-i "$found" -map 0 -c copy
+                    -metadata "title=${yt_title}"
+                    -metadata "artist=${yt_channel}")
+                [[ -s "$cover_file" ]] && \
+                    _fargs+=(-i "$cover_file" -map 0 -map 1 \
+                             -metadata:s:v title="Album cover" \
+                             -metadata:s:v comment="Cover (front)")
+                ffmpeg -loglevel error "${_fargs[@]}" "$_tmp" >> "$logfile" 2>&1 \
+                    && mv "$_tmp" "$found" || rm -f "$_tmp"
+                ;;
+            *)
+                ffmpeg -loglevel error \
+                    -i "$found" -map 0 -c copy \
+                    -metadata "title=${yt_title}" \
+                    -metadata "artist=${yt_channel}" \
+                    "$_tmp" >> "$logfile" 2>&1 \
+                    && mv "$_tmp" "$found" || rm -f "$_tmp"
+                ;;
+        esac
+
+        rm -f "$cover_file"
+        echo "OK" > "$donefile"
+        exit 0
+    ) &
+
+    AUDIO_JOBS+=("$!|${vid_title}|${dest_dir}|${ext}|${logfile}|${donefile}")
+}
+
+youtube_home_page() {
+    echo -e "\n  \033[0;90mFetching YouTube home feed...\033[0m"
+    local cookies_flag=()
+    [[ -f "$COOKIES_FILE" ]] && grep -qv "^#" "$COOKIES_FILE" 2>/dev/null &&         cookies_flag=(--cookies "$COOKIES_FILE")
+
+    local lines
+    lines=$(yt-dlp "${cookies_flag[@]}"         --flat-playlist         --print "%(title)s|||%(id)s|||%(channel)s|||%(duration_string)s|||%(thumbnail)s"         "https://www.youtube.com/" 2>/dev/null     | python3 -c "
+import sys, re
+for i, line in enumerate(sys.stdin, 1):
+    parts = line.strip().split('|||')
+    if len(parts) < 2: continue
+    title   = parts[0]
+    vid_id  = parts[1]
+    if not re.fullmatch(r'[A-Za-z0-9_-]{11}', vid_id): continue
+    channel = parts[2] if len(parts) > 2 else ''
+    dur     = parts[3] if len(parts) > 3 else ''
+    thumb   = parts[4] if len(parts) > 4 else ''
+    thumb   = '' if thumb in ('NA','None','none') else thumb
+    if not thumb:
+        thumb = f'https://img.youtube.com/vi/{vid_id}/maxresdefault.jpg'
+    meta = ' · '.join(p for p in [channel, dur] if p and p not in ('NA','None'))
+    print(f'  {i:02d}  {title} ::: {meta} ::: {vid_id} ::: video ::: {thumb}')
+")
+
+    [[ -z "$lines" ]] && {
+        echo -e "  \033[1;31m❌ Could not load YouTube home. Are you signed in? Try vid-cli --setup.\033[0m"
+        sleep 2; return 1
+    }
+
+    while true; do
+        selected=$(_yt_video_fzf "🏠  YouTube Home" "$lines") || { _clear_graphics; return 0; }
+        _clear_graphics
+        entry_type=$(_fld "$selected" 4)
+        item_id=$(_fld   "$selected" 3)
+        item_name=$(_track_name "$selected")
+        item_thumb=$(_fld "$selected" 5)
+        case "$entry_type" in
+            channel)  youtube_channel_page "$item_id" "$item_name" "$item_thumb" ;;
+            playlist) youtube_playlist_page "$item_id" "$item_name" ;;
+            video|*)  _yt_play_video "$item_id" || continue ;;
+        esac
+    done
+}
+
+
+audio_download_flow() {
+    _write_music_search_script
+
+    while true; do
+        check_audio_jobs
+
+        # Mode picker: Deezer browse or direct YouTube search
+        local mode
+        mode=$(printf             "  🟢  Search Deezer  — browse artists, albums & tracks\n  🔴  Search YouTube — pick the exact source yourself\n  ↩   Back"             | fzf --prompt="  ❯ "                   --header="  🎵  Download Audio"                   --border=rounded --layout=reverse --height=8 --no-info                   --color="prompt:#1db954,pointer:#1db954,hl:#1db954,hl+:#1db954") || return
+        [[ -z "$mode" || "$mode" == *"Back"* ]] && return
+
+        if [[ "$mode" == *"YouTube"* ]]; then
+            _clear_graphics
+            _yt_audio_search
+            check_audio_jobs
+            continue
+        fi
+
+        # Deezer flow
+        _clear_graphics
+        local selected
+        selected=$(: | fzf             --prompt="  🔍 Search music: "             --header="  Type to search — artists, albums, tracks, playlists  (powered by Deezer)"             --border=rounded --layout=reverse --height=85%             --disabled             --delimiter=" ::: " --with-nth=1             --preview="$MUSIC_PREVIEW"             --preview-window="right:40%:wrap"             --color="prompt:#1db954,pointer:#1db954,hl:#1db954,hl+:#1db954,header:#888888"             --bind "change:reload:bash /tmp/vid-cli-music-search.sh {q}"             --bind "start:reload:cat /tmp/vid-cli-music-cache.txt 2>/dev/null || true"             --bind "resize:execute-silent(rm -f /tmp/vid-cli-sp-thumbs/.last_img_key 2>/dev/null)+refresh-preview") || { _clear_graphics; continue; }
+
+        _clear_graphics
+        [[ -z "$selected" ]] && continue
+        music_open "$selected"
+        check_audio_jobs
+    done
+}
+
+# --- 1. SETUP & ARGUMENTS ---
+
+check_dependencies "yt-dlp" "fzf" "mpv" "awk" "ffmpeg" "chafa" "curl" "sqlite3" "metaflac"
+
+# Load or create config
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/vid-cli"
+CONFIG_FILE="$CONFIG_DIR/config"
+if [ ! -f "$CONFIG_FILE" ]; then
+    mkdir -p "$CONFIG_DIR"
+    printf "# vid-cli config\n# Browser to read cookies from\nBROWSER=firefox\n\n# Override default paths (optional):\n# DOWNLOAD_DIR=$HOME/videos\n# MUSIC_DIR=$HOME/Music\n\n"  > "$CONFIG_FILE"
+fi
+# shellcheck source=/dev/null
+source "$CONFIG_FILE"
+BROWSER="${BROWSER:-firefox}"
+COOKIES_FILE="${CONFIG_DIR}/cookies.txt"
+
+# Returns "--cookies /path" only when the file exists and has real cookie rows.
+# Prevents yt-dlp warnings about empty/invalid cookie files.
+_cookies_arg() {
+    if [[ -f "$COOKIES_FILE" ]] && grep -qv "^#" "$COOKIES_FILE" 2>/dev/null; then
+        printf -- "--cookies %s" "$COOKIES_FILE"
+    fi
+}
+
+# Allow config file to override DOWNLOAD_DIR; fall back to default if unset
+DOWNLOAD_DIR="${DOWNLOAD_DIR:-$HOME/videos/yt-dlp}"
+mkdir -p "$DOWNLOAD_DIR"
+
+# --- COOKIE SETUP ---
+# Reads directly from Firefox's SQLite database (safe copy, no lock issues).
+setup_cookies() {
+    mkdir -p "$CONFIG_DIR"
+    echo -e "\n🍪 Exporting cookies from \033[1;36mFirefox\033[0m → \033[1;33m$COOKIES_FILE\033[0m"
+    echo -e "\033[0;90m   Firefox can be open — we read from a safe copy.\033[0m\n"
+
+    # Find the active Firefox profile
+    local ff_profile
+    ff_profile=$(find "$HOME/.mozilla/firefox" -maxdepth 1 -name "*.default-release" -type d 2>/dev/null | head -n 1)
+    [ -z "$ff_profile" ] && ff_profile=$(find "$HOME/.mozilla/firefox" -maxdepth 1 -name "*.default*" -type d 2>/dev/null | head -n 1)
+    if [ -z "$ff_profile" ]; then
+        echo -e "\033[1;31m❌ Could not find a Firefox profile in ~/.mozilla/firefox\033[0m"
+        exit 1
+    fi
+    echo -e "  Profile: \033[0;90m$(basename "$ff_profile")\033[0m\n"
+
+    # Copy the SQLite file so we don't hit Firefox's WAL lock
+    local tmp_db
+    tmp_db=$(mktemp /tmp/vid-cli-cookies-XXXXXX.sqlite)
+    cp "$ff_profile/cookies.sqlite" "$tmp_db" 2>/dev/null || {
+        echo -e "\033[1;31m❌ Could not copy cookies.sqlite from Firefox profile\033[0m"
+        rm -f "$tmp_db"
+        exit 1
+    }
+    cp "$ff_profile/cookies.sqlite-wal" "${tmp_db}-wal" 2>/dev/null || true
+    cp "$ff_profile/cookies.sqlite-shm" "${tmp_db}-shm" 2>/dev/null || true
+
+    # Export in Netscape cookie file format using Python — avoids awk field
+    # splitting bugs when cookie values contain pipe characters.
+    python3 - "$tmp_db" "$COOKIES_FILE" << 'PYEOF'
+import sys, sqlite3
+
+db_path, out_path = sys.argv[1], sys.argv[2]
+domains = ("%youtube.com", "%google.com", "%ytimg.com", "%googlevideo.com")
+
+rows = []
+try:
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    placeholders = " OR ".join("host LIKE ?" for _ in domains)
+    cur.execute(f"""
+        SELECT host, path, isSecure, expiry, name, value
+        FROM moz_cookies
+        WHERE {placeholders}
+    """, domains)
+    rows = cur.fetchall()
+    con.close()
+except Exception as e:
+    print(f"sqlite error: {e}", file=sys.stderr)
+    sys.exit(1)
+
+with open(out_path, "w") as f:
+    f.write("# Netscape HTTP Cookie File\n")
+    f.write("# Exported by vid-cli\n")
+    for host, path, is_secure, expiry, name, value in rows:
+        # Netscape format: domain \t include_subdomains \t path \t secure \t expiry \t name \t value
+        include_sub = "TRUE" if host.startswith(".") else "FALSE"
+        secure      = "TRUE" if is_secure else "FALSE"
+        f.write(f"{host}\t{include_sub}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n")
+
+print(f"Wrote {len(rows)} cookies", file=sys.stderr)
+PYEOF
+
+    rm -f "$tmp_db" "${tmp_db}-wal" "${tmp_db}-shm"
+
+    local count
+    count=$(grep -vc "^#" "$COOKIES_FILE" 2>/dev/null || echo 0)
+
+    if [ "$count" -gt 0 ]; then
+        echo -e "\033[1;32m✅ Exported $count cookies\033[0m to \033[1;33m$COOKIES_FILE\033[0m"
+        echo -e "\033[0;90m   Run 'vid-cli --setup' if downloads start failing (cookies expired).\033[0m\n"
+    else
+        echo -e "\033[1;31m❌ No YouTube cookies found. Are you signed in to YouTube in Firefox?\033[0m"
+        rm -f "$COOKIES_FILE"
+        exit 1
+    fi
+}
+
+query="$1"
+
+case "$query" in
+    -v|--version) echo "vid-cli v$version_number"; exit 0 ;;
+    -h|--help) help_info ;;
+    -s|--setup) setup_cookies; exit 0 ;;
+esac
+
+# Auto-run setup if cookies file doesn't exist yet
+if [ ! -f "$COOKIES_FILE" ]; then
+    echo -e "\n\033[1;33m⚠️  No cookies file found.\033[0m Running first-time setup..."
+    setup_cookies
+fi
+
+# --- 2. STARTUP MENU ---
+# Clear yt search cache once per session so re-runs never show stale results
+rm -f /tmp/vid-cli-yt-cache.txt /tmp/vid-cli-yt-last-query \
+      /tmp/vid-cli-music-cache.txt /tmp/vid-cli-music-last-query
+
+if [ -z "$query" ]; then
+    print_banner
+
+    while true; do
+        mode=$(printf "  🎬  Watch Videos\n  🎵  Download Audio" \
+            | fzf --prompt="  ❯ " \
+                  --border=rounded \
+                  --layout=reverse \
+                  --height=8 \
+                  --no-info \
+                  --color="prompt:#00afff,pointer:#00afff,hl:#00afff,hl+:#00afff")
+
+        [ -z "$mode" ] && { echo "👋 Goodbye."; exit 0; }
+
+        case "$mode" in
+            *"Watch Videos"*)
+                video_mode=$(printf "  🏠  YouTube Home\n  🌐  Search YouTube\n  📂  Play from downloads\n  ↩   Back" \
+                    | fzf --prompt="  ❯ " \
+                          --border=rounded \
+                          --layout=reverse \
+                          --height=10 \
+                          --no-info \
+                          --color="prompt:#00afff,pointer:#00afff,hl:#00afff,hl+:#00afff")
+                [[ -z "$video_mode" || "$video_mode" == *"Back"* ]] && continue
+
+                if [[ "$video_mode" == *"YouTube Home"* ]]; then
+                    youtube_home_page
+
+                elif [[ "$video_mode" == *"Search YouTube"* ]]; then
+                    last_query=""
+                    while true; do
+                        raw=$(run_search "🔍 Search YouTube: " "$last_query")
+                        last_query=$(printf '%s' "$raw" | head -1)
+                        selected=$(printf '%s' "$raw" | sed -n '2p')
+
+                        [ -z "$selected" ] && { _clear_graphics; break; }
+                        _clear_graphics
+
+                        entry_type=$(_fld "$selected" 4)
+                        item_id=$(_fld   "$selected" 3)
+                        item_name=$(_track_name "$selected")
+                        item_thumb=$(_fld "$selected" 5)
+
+                        case "$entry_type" in
+                            channel)
+                                youtube_channel_page "$item_id" "$item_name" "$item_thumb"
+                                ;;
+                            playlist)
+                                youtube_playlist_page "$item_id" "$item_name"
+                                ;;
+                            video|*)
+                                _yt_play_video "$item_id" || continue
+                                ;;
+                        esac
+                    done
+
+                else
+                    file_count=$(find "$DOWNLOAD_DIR" -type f ! -name "*.part" | wc -l)
+                    if [ "$file_count" -eq 0 ]; then
+                        echo "  ⚠️  No downloads found in $DOWNLOAD_DIR."
+                        sleep 1
+                        continue
+                    fi
+                    selected_file=$(find "$DOWNLOAD_DIR" -type f ! -name "*.part" -printf "%f\n" \
+                        | sort \
+                        | fzf --prompt="📂 Select Download: " \
+                              --border=rounded \
+                              --layout=reverse \
+                              --height=80%)
+                    [ -z "$selected_file" ] && continue
+                    echo -e "▶️  Opening with \033[1;32mmpv\033[0m..."
+                    mpv --config-dir="$HOME/.config/mpv" --hwdec=auto-safe "$DOWNLOAD_DIR/$selected_file" >/dev/null 2>&1
+                    echo "✅ Playback finished."
+                fi
+                ;;
+
+            *"Download Audio"*)
+                audio_download_flow
+                ;;
+        esac
+    done
+
+else
+    # Launched with a query arg — one-shot search (channels/playlists/videos)
+    _write_yt_search_script
+    rm -f /tmp/vid-cli-yt-cache.txt /tmp/vid-cli-yt-last-query
+    selected=$(bash /tmp/vid-cli-yt-search.sh "$query" \
+        | fzf --prompt="📺 Search: " \
+              --border=rounded \
+              --layout=reverse \
+              --height=80% \
+              --delimiter=" ::: " \
+              --with-nth=1,2 \
+              --preview="$PREVIEW_SCRIPT" \
+              --bind "resize:execute-silent(rm -f /tmp/vid-cli-thumbs/.last_img_key 2>/dev/null)+refresh-preview" \
+              --preview-window="right:40%:wrap" \
+              --color="prompt:#00afff,pointer:#00afff,hl:#00afff,hl+:#00afff")
+
+    [ -z "$selected" ] && exit 0
+    _clear_graphics
+
+    entry_type=$(echo "$selected" | awk -F ' ::: ' '{print $4}')
+    item_id=$(echo "$selected"    | awk -F ' ::: ' '{print $3}')
+    item_name=$(echo "$selected"  | awk -F ' ::: ' '{print $1}' | sed 's/^[[:space:]]*//')
+    item_thumb=$(echo "$selected" | awk -F ' ::: ' '{print $5}')
+
+    case "$entry_type" in
+        channel)  youtube_channel_page  "$item_id" "$item_name" "$item_thumb" ;;
+        playlist) youtube_playlist_page "$item_id" "$item_name" ;;
+        *)        _yt_play_video "$item_id" ;;
+    esac
+fi

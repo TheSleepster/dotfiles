@@ -1,0 +1,81 @@
+configuration {
+    modes: [ combi ];
+    combi-modes: [ window, drun, run ];
+
+    display-drun: " ";
+    display-run: " ";
+    display-filebrowser: " ";
+    display-window: " ";
+
+    /* Icon Logic */
+    show-icons: true;
+    icon-theme: "Tela-circle-dracula";
+    drun-display-format: "{icon} {name}";
+    window-format: "{w} {t}";
+
+    font: "JetBrainsMono Nerd Font 10";
+}
+
+window {
+    height: 30em;
+    width: 58em;
+    transparency: "real";
+    fullscreen: false;
+    enabled: true;
+    cursor: "default";
+    spacing: 0em;
+    padding: 0em;
+    background-color: transparent;
+}
+
+mainbox {
+    enabled: true;
+    spacing: 0.5em;
+    padding: 0.8em;
+    orientation: horizontal;
+    children: [ "listbox", "inputbar" ];
+    background-color: transparent;
+}
+
+/* Container for the list to ensure alignment */
+listbox {
+    spacing: 0em;
+    padding: 0em;
+    children: [ "listview" ];
+    background-color: transparent;
+}
+
+listview {
+    enabled: true;
+    columns: 1;
+    lines: 10;
+    cycle: true;
+    dynamic: true;
+    scrollbar: false;
+    layout: vertical;
+    reverse: false;
+    fixed-height: true;
+    fixed-columns: true;
+    background-color: transparent;
+}
+
+/* Alignment for icons and text */
+element {
+    enabled: true;
+    spacing: 10px;
+    padding: 5px;
+    cursor: pointer;
+    background-color: transparent;
+}
+
+element-icon {
+    size: 24px;
+    cursor: inherit;
+}
+
+element-text {
+    vertical-align: 0.5;
+    cursor: inherit;
+}
+
+@theme "gruvbox-dark"

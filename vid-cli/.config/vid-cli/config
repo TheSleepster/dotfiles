@@ -1,0 +1,8 @@
+# vid-cli config
+# Browser to read cookies from
+BROWSER=firefox
+
+# Override default paths (optional):
+# DOWNLOAD_DIR=/home/justin/videos
+# MUSIC_DIR=/home/justin/Music
+
