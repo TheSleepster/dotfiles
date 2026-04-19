@@ -17,6 +17,7 @@ vim.pack.add({
     {src = "https://github.com/rose-pine/neovim"},
     {src = "https://github.com/ellisonleao/gruvbox.nvim"},
     {src = "https://github.com/projekt0n/github-nvim-theme"},
+    {src = "https://github.com/aikhe/fleur.nvim.git"},
     {src = "https://github.com/gmr458/vscode_modern_theme.nvim.git"},
     {src = "https://github.com/catppuccin/nvim"},
     {src = "https://github.com/rluba/jai.vim"},

@@ -493,7 +493,7 @@ ShellRoot {
 
                                 // Memory  e.g. " 6.1/15.4G"
                                 Text {
-                                    text: " " + statsGrp.memU.toFixed(1) + "/" + statsGrp.memT.toFixed(1) + "G"
+                                    text: "\uefc5 " + statsGrp.memU.toFixed(1) + "/" + statsGrp.memT.toFixed(1) + "G"
                                     color: (statsGrp.memT > 0 && statsGrp.memU / statsGrp.memT > 0.85)
                                            ? shell.clr3 : shell.clrFg
                                     font.family: shell.fnt; font.pixelSize: shell.fSm
