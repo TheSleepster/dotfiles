@@ -22,7 +22,7 @@
     },
     "fleur.nvim": {
       "rev": "55a9f098d2c5d7e8ac2883b55c075067e4088f49",
-      "src": "https://github.com/aikhe/fleur.nvim"
+      "src": "https://github.com/aikhe/fleur.nvim.git"
     },
     "github-nvim-theme": {
       "rev": "c106c9472154d6b2c74b74565616b877ae8ed31d",
@@ -122,7 +122,7 @@
     },
     "vscode_modern_theme.nvim": {
       "rev": "22371eeb704bed395262e552248c998ef7f41254",
-      "src": "https://github.com/gmr458/vscode_modern_theme.nvim"
+      "src": "https://github.com/gmr458/vscode_modern_theme.nvim.git"
     }
   }
 }
