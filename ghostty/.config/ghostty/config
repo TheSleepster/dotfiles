@@ -43,7 +43,7 @@
 # resize-overlay-duration = 4s 200ms
 
 
-font-family = "LiterationMono"
+font-family = "LiterationMono Nerd Font Mono"
 font-size = 14
 
 background = black

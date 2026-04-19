@@ -486,14 +486,14 @@ ShellRoot {
 
                                 // GPU
                                 Text {
-                                    text: "󰾲 " + statsGrp.gpu + "%"
+                                    text: "󰾲 " + statsGrp.gpu + "% "
                                     color: statsGrp.gpu > 80 ? shell.clr3 : shell.clrFg
                                     font.family: shell.fnt; font.pixelSize: shell.fSm
                                 }
 
                                 // Memory  e.g. " 6.1/15.4G"
                                 Text {
-                                    text: "\uefc5 " + statsGrp.memU.toFixed(1) + "/" + statsGrp.memT.toFixed(1) + "G"
+                                    text: "\uefc5 " + statsGrp.memU.toFixed(1) + "/" + statsGrp.memT.toFixed(1) + "G "
                                     color: (statsGrp.memT > 0 && statsGrp.memU / statsGrp.memT > 0.85)
                                            ? shell.clr3 : shell.clrFg
                                     font.family: shell.fnt; font.pixelSize: shell.fSm
@@ -647,9 +647,9 @@ ShellRoot {
                                 Text {
                                     property var bats: ["\uF244", "\uF243", "\uF242", "\uF241", "\uF240"]
                                     text: {
-                                        if (statGrp.charging) return "\uF0E7  " + statGrp.bat + "%"
+                                        if (statGrp.charging) return "\uF0E7  " + statGrp.bat + "% "
                                         return bats[Math.min(Math.floor(statGrp.bat / 20), 4)] +
-                                        "  " + statGrp.bat + "%"
+                                        " " + statGrp.bat + "% "
                                     }
                                     color: {
                                         if (statGrp.charging) return shell.clr2
@@ -669,7 +669,7 @@ ShellRoot {
                                         if (statGrp.vol < 67)  return "\uF027"
                                         return "\uF028"
                                     }
-                                    text:  vIcon + " " + statGrp.vol + "%"
+                                    text:  vIcon + " " + statGrp.vol + "% "
                                     color: statGrp.muted ? shell.clr3 : (hov ? shell.clr6 : shell.clrFg)
                                     font.family: shell.fnt; font.pixelSize: shell.fSm
                                     MouseArea {

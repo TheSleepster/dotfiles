@@ -3,6 +3,6 @@
 BROWSER=firefox
 
 # Override default paths (optional):
-# DOWNLOAD_DIR=/home/justin/videos
-# MUSIC_DIR=/home/justin/Music
+DOWNLOAD_DIR=/mnt/ssd/YTVideos
+MUSIC_DIR=/home/justin/personal/Music
 
