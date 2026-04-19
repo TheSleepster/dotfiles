@@ -719,7 +719,7 @@ ShellRoot {
                                 Text {
                                     id: pwrStatLbl
                                     property bool hov: false
-                                    text: " \uF011 "
+                                    text: "\uF011"
                                     color: hov ? shell.clr3 : shell.clrFg
                                     font.family: shell.fnt; font.pixelSize: shell.fSm
                                     leftPadding: 2
