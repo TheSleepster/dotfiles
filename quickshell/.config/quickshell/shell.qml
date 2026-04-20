@@ -633,10 +633,10 @@ ShellRoot {
                             }
 
                             // App launchers
-                            Process { id: pavuP;   command: ["pavucontrol"]         }
-                            Process { id: bluebP;  command: ["blueberry"]           }
-                            Process { id: wlogP;   command: ["wlogout"]             }
-                            Process { id: nmguiP;  command: ["nm-connection-editor"] }
+                            Process { id: pavuP;   command: ["pavucontrol"] }
+                            Process { id: bluebP;  command: ["blueberry"]   }
+                            Process { id: wlogP;   command: ["wlogout"]     }
+                            Process { id: nmguiP;  command: ["nmgui"]       }
 
                             Row {
                                 id: statRow
