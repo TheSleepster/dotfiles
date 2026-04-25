@@ -4,7 +4,7 @@ vim.pack.add({
     {src = "https://github.com/neovim/nvim-lspconfig"},
     {src = "https://github.com/mason-org/mason.nvim"},
     {src = "https://github.com/mason-org/mason-lspconfig.nvim"},
-    {src = "https://github.com/nvim-treesitter/nvim-treesitter"},
+    {src = "https://github.com/nvim-treesitter/nvim-treesitter", version = vim.version.range("main"), build = ":TSUpdate"},
     {src = "https://github.com/nvim-mini/mini.pick"},
     {src = "https://github.com/hrsh7th/nvim-cmp"},
     {src = "https://github.com/hrsh7th/cmp-nvim-lsp"},
@@ -25,9 +25,55 @@ vim.pack.add({
     --{src = "https://github.com/S1M0N38/love2d.nvim"},
 })
 
-require("nvim-treesitter.configs").setup({
-    ensure_installed = { "lua", "c", "cpp", "rust", "glsl", "slang"},
-    highlight = { enable = true }
+local setup_treesitter = function()
+	local treesitter = require("nvim-treesitter")
+	treesitter.setup({})
+	local ensure_installed = {
+		"vim",
+		"vimdoc",
+		"rust",
+		"c",
+		"cpp",
+		"go",
+		"lua",
+        "markdown",
+        "markdown-inline",
+		"bash",
+        "make",
+        "odin"
+	}
+
+	local config = require("nvim-treesitter.config")
+
+	local already_installed = config.get_installed()
+	local parsers_to_install = {}
+
+	for _, parser in ipairs(ensure_installed) do
+		if not vim.tbl_contains(already_installed, parser) then
+			table.insert(parsers_to_install, parser)
+		end
+	end
+
+	if #parsers_to_install > 0 then
+		treesitter.install(parsers_to_install)
+	end
+
+	local group = vim.api.nvim_create_augroup("TreeSitterConfig", { clear = true })
+	vim.api.nvim_create_autocmd("FileType", {
+		group = group,
+		callback = function(args)
+			if vim.list_contains(treesitter.get_installed(), vim.treesitter.language.get_lang(args.match)) then
+				vim.treesitter.start(args.buf)
+			end
+		end,
+	})
+end
+
+setup_treesitter()
+
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = { '<filetype>' },
+  callback = function() vim.treesitter.start() end,
 })
 
 require("mini.pick").setup()

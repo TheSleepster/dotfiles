@@ -28,9 +28,7 @@ vim.lsp.config("lua_ls", {
     }
 })
 
-local lspconfig = require("lspconfig")
 local project_root = vim.fn.getcwd()
-
 local capabilities = vim.lsp.protocol.make_client_capabilities()
 
 local on_attach = function(client, bufnr)
