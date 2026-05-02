@@ -67,7 +67,7 @@ vim.lsp.config("clangd", {
 
 vim.lsp.config("slangd", {
     cmd = { "slangd" },
-    filetypes = { "slang" },
+    filetypes = { "slang", "slh" },
     on_attach = on_attach,
     capabilities = capabilities,
 })

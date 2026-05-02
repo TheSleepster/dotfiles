@@ -69,6 +69,13 @@ local setup_treesitter = function()
 	})
 end
 
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+  pattern = {"*.slh", "*.slm"},
+  callback = function()
+    vim.bo.filetype = "slang"
+  end,
+})
+
 setup_treesitter()
 
 vim.api.nvim_create_autocmd('FileType', {
@@ -183,8 +190,8 @@ vim.api.nvim_create_autocmd("ModeChanged", {
 set_mode_highlights("n")
 
 if vim.g.neovide then
-    vim.o.guifont = "LiterationMono Nerd Font Propo:h6"
-    vim.g.neovide_refresh_rate = 60
+    vim.o.guifont = "LiterationMono Nerd Font Propo:h10"
+    vim.g.neovide_refresh_rate = 144.0
     vim.g.neovide_scroll_animation_length = 0.0
     vim.g.neovide_cusor_animation_length = 0.0
     vim.g.neovide_cursor_short_animation_length = 0.0
@@ -194,8 +201,8 @@ if vim.g.neovide then
     vim.g.neovide_fullscreen = true
     vim.g.neovide_cursor_animate_in_insert_mode = false
     vim.g.neovide_cursor_animate_command_line = false
-    vim.g.neovide_position_animation_length  = 0
-    vim.g.neovide_scroll_animation_far_lines = 0
+    vim.g.neovide_position_animation_length  = 0.0
+    vim.g.neovide_scroll_animation_far_lines = 0.0
 
     vim.api.nvim_set_keymap('v', '<sc-c>', '"+y', {noremap = true})
     vim.api.nvim_set_keymap('n', '<sc-v>', 'l"+P', {noremap = true})

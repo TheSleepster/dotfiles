@@ -36,14 +36,14 @@ local function insert_metadata()
     local date = get_system_time()
     local lines = {}
 
-    if filename:match("%.h$") or filename:match("%.hpp$") then
+    if filename:match("%.h$") or filename:match("%.hpp$") or filename:match("%.slh") then
         local guard = make_guard(filename)
         lines = {
             "#if !defined(" .. guard .. ")",
             "/* ========================================================================",
             "   $File: " .. filename .. " $",
             "   $Date: " .. date .. " $",
-            "   $Revision: $", 
+            "   $Revision: $",
             "   $Creator: " .. username .. " $",
             "   ======================================================================== */",
             "",
@@ -56,7 +56,7 @@ local function insert_metadata()
             "/* ========================================================================",
             "   $File: " .. filename .. " $",
             "   $Date: " .. date .. " $",
-            "   $Revision: $", 
+            "   $Revision: $",
             "   $Creator: " .. username .. " $",
             "   ======================================================================== */",
             "",
@@ -68,7 +68,7 @@ end
 
 -- Normal BufNewFile for manual editing
 vim.api.nvim_create_autocmd("BufNewFile", {
-    pattern = {"*.h", "*.hpp", "*.c", "*.cpp", "*.jai", "*.odin", "*.zig", "*.rs"},
+    pattern = {"*.h", "*.hpp", "*.slh", ".slang", "*.c", "*.cpp", "*.jai", "*.odin", "*.zig", "*.rs"},
     callback = insert_metadata
 })
 

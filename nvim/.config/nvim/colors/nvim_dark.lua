@@ -83,6 +83,9 @@ hl("Type",              { fg = C.type })
 hl("StorageClass",      { fg = C.type })
 hl("Structure",         { fg = C.type })
 hl("Typedef",           { fg = C.type })
+hl("Repeat",            { fg = C.type })
+hl("Conditional",       { fg = C.type })
+hl("Macro",             { fg = "#2898c7" })
 
 hl("PreProc",           { fg = C.preproc })
 hl("Special",           { fg = C.special_char })
@@ -158,6 +161,7 @@ hl("StatusLine",      { fg = C.fg, bg = C.modeline_bg })
 hl("StatusLineNC",    { fg = C.modeline_inactive_fg, bg = C.fringe })
 
 hl("@keyword.import.cpp", { fg = "#ff7a7b" })  -- import keywords
+hl("@keyword.conditional.cpp", { fg = C.keyword }) -- conditionals 
 hl("@constant.macro.cpp", { fg = "#2898c7" })  -- macros
 
 -- Terminal colors (optional; helps when using built-in terminal)
