@@ -1,8 +1,8 @@
 sw_volume: 10
 audio_device_state:1:PipeWire Sound Server
-state: pause
-current: 26
-time: 291.572
+state: play
+current: 40
+time: 120.552
 random: 1
 repeat: 1
 single: 0
@@ -57,4 +57,17 @@ playlist_begin
 42:Metal Gear Rising OST/Jimmy Gnecco - It Has To Be This Way (Platinum Mix).flac
 43:Metal Gear Rising OST/Free Dominguez - A Stranger I Remain (Maniac Agenda Mix).flac
 44:Metal Gear Rising OST/Tyson Yen - The Only Thing I Know For Real (Maniac Agenda Mix).flac
+45:Not Good/NF - HAPPY.flac
+46:Not Good/NF - HOPE.flac
+47:Eminem/Eminem - 00 Somebody Save Me.flac
+48:Eminem/Eminem - 01 Lose Yourself.flac
+49:Eminem/Eminem - When I'm Gone.flac
+50:Linkin Park/Linkin Park - 00 Leave Out All The Rest.flac
+51:Movements/Feel Something - Daylily.flac
+52:Wilbur/Wilbur Soot - Melatonin 130.flac
+53:Wilbur/Wilbur Soot - Oh Distant You.flac
+54:Wilbur/🎬 Wilbur Soot - Screensaver (official audio).flac
+55:Persona/Lotus Juice · Persona 3 Reload Original Soundtrack · 3_06 - It's Going Down Now.flac
+56:SAO/Akai wana who loves it_ _ ADAMAS - ADAMAS.flac
+57:SAO/LiSA BEST -Day - Crossing Field.flac
 playlist_end

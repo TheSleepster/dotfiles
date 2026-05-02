@@ -69,6 +69,13 @@ local setup_treesitter = function()
 	})
 end
 
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+  pattern = "*.slh",
+  callback = function()
+    vim.bo.filetype = "slang"
+  end,
+})
+
 setup_treesitter()
 
 vim.api.nvim_create_autocmd('FileType', {
