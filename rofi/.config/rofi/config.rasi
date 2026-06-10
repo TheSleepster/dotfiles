@@ -78,4 +78,4 @@ element-text {
     cursor: inherit;
 }
 
-@theme "gruvbox-dark"
+@theme "gruvbox-dark-hard"
