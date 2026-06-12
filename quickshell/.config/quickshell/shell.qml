@@ -652,7 +652,7 @@ ShellRoot {
                                         " " + statGrp.bat + "% "
                                     }
                                     color: {
-                                        if (statGrp.charging) return shell.clr2
+                                        if (statGrp.charging) return shell.clr3
                                         if (statGrp.batCrit)  return statGrp.blinkOn ? shell.clr3 : shell.clrFg
                                         return shell.clrFg
                                     }

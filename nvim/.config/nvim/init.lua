@@ -95,7 +95,7 @@ require("config.tasks")
 require("config.todo_highlighting").setup()
 --require("config.welcome_screen")
 
-require('compile').setup({
+require('new_compile').setup({
     build_command = nil,  -- Will auto-detect based on OS
     window_height = 15,   -- Height of compilation window
     auto_close_on_success = false,  -- Auto-close on successful compile

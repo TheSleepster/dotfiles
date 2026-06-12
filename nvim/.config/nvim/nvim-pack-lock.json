@@ -36,6 +36,18 @@
       "rev": "591aa0a75e9bb859028248b65a1a38d46b8d8576",
       "src": "https://github.com/rluba/jai.vim"
     },
+    "kanagawa.nvim": {
+      "rev": "aef7f5cec0a40dbe7f3304214850c472e2264b10",
+      "src": "https://github.com/rebelot/kanagawa.nvim"
+    },
+    "love2d.nvim": {
+      "rev": "25715394680590f56aab90390d430cab0dc46808",
+      "src": "https://github.com/S1M0N38/love2d.nvim"
+    },
+    "lualine.nvim": {
+      "rev": "b8c23159c0161f4b89196f74ee3a6d02cdc3a955",
+      "src": "https://github.com/nvim-lualine/lualine.nvim"
+    },
     "mason-lspconfig.nvim": {
       "rev": "0c2823e0418f3d9230ff8b201c976e84de1cb401",
       "src": "https://github.com/mason-org/mason-lspconfig.nvim"
@@ -44,6 +56,10 @@
       "rev": "12ddd182d9efbdc848b540f16484a583d52da0fb",
       "src": "https://github.com/mason-org/mason.nvim"
     },
+    "minesweeper.nvim": {
+      "rev": "a368da548d71e17e4c411eb7e97e6980a0c0264a",
+      "src": "https://github.com/Pansther/minesweeper.nvim"
+    },
     "mini.pick": {
       "rev": "437d44eb57312f23e6b931704694fc294922cd88",
       "src": "https://github.com/nvim-mini/mini.pick"
@@ -51,6 +67,10 @@
     "neovim": {
       "rev": "9504524e5ed0e326534698f637f9d038ba4cd0ee",
       "src": "https://github.com/rose-pine/neovim"
+    },
+    "nightfox.nvim": {
+      "rev": "ba47d4b4c5ec308718641ba7402c143836f35aa9",
+      "src": "https://github.com/EdenEast/nightfox.nvim"
     },
     "nord.nvim": {
       "rev": "80c1e5321505aeb22b7a9f23eb82f1e193c12470",
@@ -76,13 +96,25 @@
       "rev": "0fcc83805ad11cf714a949c98c605ed717e0b83e",
       "src": "https://github.com/stevearc/oil.nvim"
     },
+    "todo-comments.nvim": {
+      "rev": "304a8d204ee787d2544d8bc23cd38d2f929e7cc5",
+      "src": "https://github.com/folke/todo-comments.nvim"
+    },
     "tokyonight.nvim": {
       "rev": "cdc07ac78467a233fd62c493de29a17e0cf2b2b6",
       "src": "https://github.com/folke/tokyonight.nvim"
     },
+    "tree-sitter-jai": {
+      "rev": "2763e5001856ea7b5047e780e8dec95a07072d59",
+      "src": "https://github.com/constantitus/tree-sitter-jai"
+    },
     "undotree": {
       "rev": "6fa6b57cda8459e1e4b2ca34df702f55242f4e4d",
       "src": "https://github.com/mbbill/undotree"
+    },
+    "undotree.vim": {
+      "rev": "c103f3c2e2eb8df4b811b045b8ed626f968f0138",
+      "src": "https://github.com/mao-yining/undotree.vim"
     },
     "vague.nvim": {
       "rev": "fd58046b9d64259d9785e4aeb6d6f494c6943cad",
