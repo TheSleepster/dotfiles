@@ -5,6 +5,8 @@ export PATH="$HOME/src/gf/:$PATH"
 export PATH="$HOME/bin/:$PATH"
 export PATH="/opt/nvim:$PATH"
 
+alias jai="jai-linux"
+
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
