@@ -66,8 +66,7 @@ local function toggle_qf()
   vim.cmd("copen")
 end
 
-
-
+-- ToggleTransparency
 local previous_bg_colors = {}
 local function get_bg_color(group)
   local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = group })

@@ -96,6 +96,14 @@
       "rev": "0fcc83805ad11cf714a949c98c605ed717e0b83e",
       "src": "https://github.com/stevearc/oil.nvim"
     },
+    "plenary.nvim": {
+      "rev": "74b06c6c75e4eeb3108ec01852001636d85a932b",
+      "src": "https://github.com/nvim-lua/plenary.nvim"
+    },
+    "telescope.nvim": {
+      "rev": "40aedd8a68c78a656a10a8d62d80c54af59420fb",
+      "src": "https://github.com/nvim-telescope/telescope.nvim"
+    },
     "todo-comments.nvim": {
       "rev": "304a8d204ee787d2544d8bc23cd38d2f929e7cc5",
       "src": "https://github.com/folke/todo-comments.nvim"
@@ -107,6 +115,10 @@
     "tree-sitter-jai": {
       "rev": "2763e5001856ea7b5047e780e8dec95a07072d59",
       "src": "https://github.com/constantitus/tree-sitter-jai"
+    },
+    "tree-sitter-just": {
+      "rev": "5685543a6e64f66335e25518c9ae8ffa1dae3d01",
+      "src": "https://github.com/casey/tree-sitter-just.git"
     },
     "undotree": {
       "rev": "6fa6b57cda8459e1e4b2ca34df702f55242f4e4d",

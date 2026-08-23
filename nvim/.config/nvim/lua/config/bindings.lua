@@ -1,9 +1,15 @@
 -- leader bindings...
 vim.g.mapleader = " "
 
-vim.keymap.set('n', '<leader>pf', ":Pick files<CR>")
-vim.keymap.set('n', '<leader>ps', ":Pick grep_live<CR>")
-vim.keymap.set('n', '<leader>h',  ":Pick help<CR>")
+local telescope = require("telescope.builtin")
+vim.keymap.set('n', '<leader>pf', telescope.find_files, {})
+vim.keymap.set('n', '<leader>pf', telescope.find_files, {})
+vim.keymap.set('n', '<leader>gf', telescope.git_files, {})
+vim.keymap.set('n', '<leader>h',  ":Telescope help <CR>")
+vim.keymap.set('n', '<leader>ps', function()
+    telescope.grep_string({search = vim.fn.input("Grep > ")})
+end)
+
 vim.keymap.set('n', '<leader>pv', ":Ex <CR>")
 
 vim.keymap.set('n', '<leader>sc', ":source ~/.config/nvim/init.lua<CR>")

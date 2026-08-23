@@ -44,6 +44,7 @@
 
 
 font-family = "LiterationMono Nerd Font Mono"
+#font-family = "VictorMono Nerd Font Mono"
 font-size = 14
 
 background = black
