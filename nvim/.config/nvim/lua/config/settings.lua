@@ -15,7 +15,7 @@ vim.o.hlsearch = false
 vim.o.incsearch = true
 
 vim.o.termguicolors = true
-vim.o.autochdir = true;
+vim.o.autochdir = false;
 
 vim.o.scrolloff = 8
 vim.o.signcolumn = "no"

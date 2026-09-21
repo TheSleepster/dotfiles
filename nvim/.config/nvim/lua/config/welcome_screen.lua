@@ -2,6 +2,17 @@ local ok, alpha = pcall(require, "alpha")
 if not ok then return end
 local dashboard = require("alpha.themes.dashboard")
 
+vim.api.nvim_create_user_command("PickOldfiles", function()
+    local builtin = require("telescope.builtin")
+    local old = vim.v.oldfiles or {}
+    if #old == 0 then
+        vim.notify("No recent files", vim.log.levels.INFO)
+        return
+    end
+
+    builtin.old_files()
+end, {})
+
 dashboard.section.header.val = {
 	[[                                                                       ]],
 	[[                                                                     ]],
@@ -18,7 +29,7 @@ dashboard.section.header.val = {
 
 dashboard.section.buttons.val = {
   dashboard.button("f", "  > Find File",     ":cd ~<CR>:Telescope find_files<CR>"),
-  dashboard.button("r", "  > Recent Files",  ":Telescope oldfiles<CR>"),
+  dashboard.button("r", "  > Recent Files",  ":PickOldfiles<CR>"),
   dashboard.button("c", "  > Configuration", ":edit $MYVIMRC<CR>"),
   dashboard.button("q", "  > Quit NVIM",     ":qa<CR>"),
 }

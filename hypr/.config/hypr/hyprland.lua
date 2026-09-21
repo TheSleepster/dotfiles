@@ -53,7 +53,7 @@ hl.env("MAKEFLAGS", "-j" .. nproc)
 ---- MY PROGRAMS ----
 ---------------------
 local terminal = "ghostty"
-local fileManager = "dolphin"
+local fileManager = "thunar"
 local menu = "rofi -show drun"
 
 -------------------

@@ -3,7 +3,9 @@ export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
 export PATH="$HOME/.jai/bin/:$PATH"
 export PATH="$HOME/src/gf/:$PATH"
 export PATH="$HOME/bin/:$PATH"
+export PATH="$HOME/.config/bin/:$PATH"
 export PATH="/opt/nvim:$PATH"
+export PATH="/opt/llvm-mingw-20260826-ucrt-ubuntu-22.04-x86_64/bin/:$PATH"
 
 alias jai="jai-linux"
 
@@ -11,6 +13,7 @@ alias jai="jai-linux"
 export ZSH="$HOME/.oh-my-zsh"
 
 export MAKEFLAGS="-j $(nproc)"
+export XMAKE_PROFILE=
 
 ZSH_THEME="robbyrussell"
 

@@ -22,9 +22,9 @@ vim.pack.add({
     {src = "https://github.com/rluba/jai.vim"},
     {src = "https://github.com/mbbill/undotree"},
     {src = "https://github.com/casey/tree-sitter-just.git"},
-    {src = "https://github.com/nvim-lua/plenary.nvim"},
-    {src = "https://github.com/nvim-telescope/telescope.nvim"},
-    --{src = "https://github.com/nvim-mini/mini.pick"},
+    {src = "https://github.com/nvim-mini/mini.pick"},
+    --{src = "https://github.com/nvim-lua/plenary.nvim"},
+    --{src = "https://github.com/nvim-telescope/telescope.nvim"},
     --{src = "https://github.com/S1M0N38/love2d.nvim"},
 })
 
@@ -33,7 +33,7 @@ vim.api.nvim_create_autocmd('FileType', {
   callback = function() vim.treesitter.start() end,
 })
 
---require("mini.pick").setup()
+require("mini.pick").setup()
 require("mason").setup()
 
 require("config.bindings")

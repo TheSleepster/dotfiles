@@ -27,6 +27,8 @@ local S = {
     partial_raw = "",    -- raw (ANSI) accumulator for the current incomplete line
     ansi_ns     = nil,   -- nvim namespace for ANSI colour extmarks
     syntax_ns   = nil,   -- nvim namespace for semantic (error/warning) highlights
+    path_cache  = {},    -- memoized resolve_path() results for the current compile
+    file_index  = {},    -- memoized "basename -> [paths]" scan, keyed by root
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -43,44 +45,88 @@ local function get_project_root()
     return m and vim.fs.dirname(m) or vim.fn.getcwd()
 end
 
+-- Lazily builds (once per root, per compile) a basename -> [paths] index by
+-- doing a single bounded recursive scan, instead of re-globbing the entire
+-- tree with an unbounded "**" pattern for every unresolved error line. That
+-- per-line re-glob was the main cause of multi-second stalls after a
+-- compile with more than a couple of diagnostics: the same recursive
+-- filesystem walk was being repeated once per line, often for the same
+-- file. `limit` caps the walk so pathological monorepos don't stall the
+-- first lookup either.
+local MAX_INDEX_FILES = 20000
+
+local function get_file_index(anchor)
+    local idx = S.file_index[anchor]
+    if idx then return idx end
+
+    idx = {}
+    local hits = vim.fs.find(function() return true end, {
+        path   = anchor,
+        type   = "file",
+        limit  = MAX_INDEX_FILES,
+        upward = false,
+    })
+    for _, hit in ipairs(hits) do
+        local norm = hit:gsub("\\", "/")
+        local b    = vim.fn.fnamemodify(norm, ":t")
+        local list = idx[b]
+        if list then list[#list + 1] = norm else idx[b] = { norm } end
+    end
+    S.file_index[anchor] = idx
+    return idx
+end
+
 -- Resolve a compiler-reported path to an absolute readable path.
--- Tries: absolute, relative to root, relative to cwd, then glob search.
+-- Tries: absolute, relative to root, relative to cwd, then the indexed
+-- filesystem search above. Results are memoized per (root, raw) because the
+-- same file is typically referenced by many error/warning lines in one
+-- compile.
 local function resolve_path(raw, root)
     if not raw or raw == "" then return nil end
+
+    local cache_key = (root or "") .. "\0" .. raw
+    local cached = S.path_cache[cache_key]
+    if cached ~= nil then
+        return cached ~= false and cached or nil
+    end
+
     local path = raw:gsub("^%s+", ""):gsub("%s+$", "")   -- trim whitespace
     path = path:gsub("\\", "/")                           -- normalise separators
 
+    local function store(result)
+        S.path_cache[cache_key] = result or false
+        return result
+    end
+
     -- Already absolute
     if path:sub(1, 1) == "/" or path:match("^%a:/") then
-        return vim.fn.filereadable(path) == 1 and path or nil
+        return store(vim.fn.filereadable(path) == 1 and path or nil)
     end
 
     -- Relative to root or cwd
     for _, base in ipairs({ root or "", vim.fn.getcwd() }) do
         if base ~= "" then
             local c = base .. "/" .. path
-            if vim.fn.filereadable(c) == 1 then return c end
+            if vim.fn.filereadable(c) == 1 then return store(c) end
         end
     end
 
-    -- Glob fallback: search for the basename anywhere under root, then verify
-    -- the suffix matches (avoids picking the wrong file with the same name).
+    -- Indexed fallback: search for the basename anywhere under root, then
+    -- verify the suffix matches (avoids picking the wrong file with the
+    -- same name).
     local base = vim.fn.fnamemodify(path, ":t")
-    if base ~= "" then
-        local anchor = root or vim.fn.getcwd()
-        -- Search progressively shallower: one level, two levels, unlimited
-        for _, pat in ipairs({ "/" .. base, "/*/" .. base, "/**/" .. base }) do
-            local hits = vim.fn.glob(anchor .. pat, true, true)
-            for _, hit in ipairs(hits) do
-                local norm = hit:gsub("\\", "/")
-                -- Check the tail of the resolved path matches our relative path
-                if norm:sub(-#path):gsub("\\", "/") == path then return hit end
-            end
-            -- Unambiguous match at this depth: take it
-            if #hits == 1 then return hits[1] end
-        end
+    if base == "" then return store(nil) end
+
+    local anchor     = root or vim.fn.getcwd()
+    local candidates = get_file_index(anchor)[base]
+    if not candidates then return store(nil) end
+
+    for _, hit in ipairs(candidates) do
+        if hit:sub(-#path) == path then return store(hit) end
     end
-    return nil
+    -- Unambiguous match: take it
+    if #candidates == 1 then return store(candidates[1]) end
+    return store(nil)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -186,64 +232,8 @@ local RUST_ERR  = "^error%[E%d+%]:%s*(.+)"
 local RUST_WARN = "^warning%[.-%]:%s*(.+)"
 local RUST_LOC  = "^%s*%-%->%s+(.-)%s*:(%d+):(%d+)"
 
-local function parse_errors(lines, root)
-    local items = {}
-    local i = 1
-    while i <= #lines do
-        local line = lines[i]
-        local done = false
-
-        -- Rust multi-line detection
-        local msg   = line:match(RUST_ERR)
-        local etype = msg and "E"
-        if not msg then msg, etype = line:match(RUST_WARN), "W" end
-        if msg then
-            local nxt        = lines[i + 1] or ""
-            local rf, rl, rc = nxt:match(RUST_LOC)
-            if rf then
-                local resolved = resolve_path(rf, root)
-                if resolved then
-                    items[#items + 1] = {
-                        filename = resolved,
-                        lnum  = tonumber(rl),
-                        col   = math.max(0, (tonumber(rc) or 1) - 1),
-                        type  = etype,
-                        text  = msg,
-                        valid = 1,
-                    }
-                    i = i + 2; done = true
-                end
-            end
-        end
-
-        -- Standard single-line patterns
-        if not done then
-            for _, p in ipairs(PATTERNS) do
-                local pat, et, fi, li, ci, mi = p[1], p[2], p[3], p[4], p[5], p[6]
-                local caps = { line:match(pat) }
-                if caps[fi] then
-                    local resolved = resolve_path(caps[fi], root)
-                    -- Only add to quickfix if the file actually exists on disk.
-                    -- This is the core heuristic that eliminates false positives
-                    -- from plain-text build output that happens to contain colons.
-                    if resolved then
-                        items[#items + 1] = {
-                            filename = resolved,
-                            lnum  = tonumber(caps[li]),
-                            col   = ci and math.max(0, (tonumber(caps[ci]) or 1) - 1) or 0,
-                            type  = et,
-                            text  = caps[mi] or "",
-                            valid = 1,
-                        }
-                        done = true; break
-                    end
-                end
-            end
-            i = i + 1
-        end
-    end
-    return items
-end
+-- (Diagnostic parsing now lives in analyze_buffer, § 7, so the compilation
+-- buffer only needs to be walked once after each compile instead of twice.)
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- § 4  Highlight Setup
@@ -389,32 +379,117 @@ local function write_header(lines)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- § 7  Post-compile Semantic Highlighting
+-- § 7  Post-compile Analysis (semantic highlights + quickfix items)
 -- ─────────────────────────────────────────────────────────────────────────────
--- Overlays error/warning/success line colours on top of the ANSI highlights.
--- Uses a separate namespace so ANSI colours are never destroyed.
-local function apply_syntax(bufnr)
+-- Single pass over the buffer that both applies line highlights and builds
+-- the quickfix list. This used to be two separate full traversals
+-- (apply_syntax, then parse_errors), each reading every buffer line and
+-- lowercasing it again; parse_errors additionally ran up to ~15 Lua
+-- patterns against *every* line regardless of content. For a large,
+-- verbose build log that doubled the buffer walk and made ordinary lines
+-- (linker chatter, ninja/make progress, blank lines) pay for a full
+-- diagnostic-pattern sweep. Here, a cheap plain-text pre-check
+-- (`lo:find(...)`) gates the expensive regex/Rust matching so only lines
+-- that could plausibly be a diagnostic pay for it.
+local function analyze_buffer(bufnr, root)
     local ns = S.syntax_ns
     vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 
-    for i, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
-        local lo  = line:lower()
-        local idx = i - 1
-        local hl
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local items = {}
+    local n     = #lines
+    local i     = 1
 
-        if     line:find("Compilation Finished", 1, true) then hl = "CompileSuccess"
-        elseif line:find("Compilation Failed",   1, true) then hl = "CompileFailed"
-        elseif line:find("-*- mode:",             1, true)
+    while i <= n do
+        local line    = lines[i]
+        local row     = i - 1
+        local hl
+        local advance = 1
+
+        if line:find("Compilation Finished", 1, true) then
+            hl = "CompileSuccess"
+        elseif line:find("Compilation Failed", 1, true) then
+            hl = "CompileFailed"
+        elseif line:find("-*- mode:", 1, true)
             or line:sub(1, 5)  == "Root:"
             or line:sub(1, 8)  == "Running:"
-            or line:sub(1, 19) == "Compilation started"    then hl = "CompileHeader"
-        elseif lo:match("[%s%(]error[:%s%(]") or lo:match("^error[:%s%(]")       then hl = "CompileError"
-        elseif lo:match("[%s%(]warning[:%s%(]") or lo:match("^warning[:%s%(]")   then hl = "CompileWarning"
-        elseif lo:match("[%s%(]note[:%s]") or lo:match("^note[:%s]")             then hl = "CompileInfo"
+            or line:sub(1, 19) == "Compilation started" then
+            hl = "CompileHeader"
+        else
+            local lo          = line:lower()
+            local has_error   = lo:find("error", 1, true) ~= nil
+            local has_warning = lo:find("warning", 1, true) ~= nil
+            local has_note    = lo:find("note", 1, true) ~= nil
+
+            if has_error and (lo:match("[%s%(]error[:%s%(]") or lo:match("^error[:%s%(]")) then
+                hl = "CompileError"
+            elseif has_warning and (lo:match("[%s%(]warning[:%s%(]") or lo:match("^warning[:%s%(]")) then
+                hl = "CompileWarning"
+            elseif has_note and (lo:match("[%s%(]note[:%s]") or lo:match("^note[:%s]")) then
+                hl = "CompileInfo"
+            end
+
+            if has_error or has_warning or has_note then
+                local matched = false
+
+                -- Rust's two-line "error[Exxxx]: msg" / "--> file:line:col" form.
+                local msg   = line:match(RUST_ERR)
+                local etype = msg and "E"
+                if not msg then msg, etype = line:match(RUST_WARN), "W" end
+                if msg then
+                    local nxt        = lines[i + 1] or ""
+                    local rf, rl, rc = nxt:match(RUST_LOC)
+                    if rf then
+                        local resolved = resolve_path(rf, root)
+                        if resolved then
+                            items[#items + 1] = {
+                                filename = resolved,
+                                lnum  = tonumber(rl),
+                                col   = math.max(0, (tonumber(rc) or 1) - 1),
+                                type  = etype,
+                                text  = msg,
+                                valid = 1,
+                            }
+                            matched = true
+                            advance = 2   -- also consumes the "-->" line
+                        end
+                    end
+                end
+
+                -- Standard single-line patterns (only reached when the line
+                -- actually mentions error/warning/note).
+                if not matched then
+                    for _, p in ipairs(PATTERNS) do
+                        local pat, et, fi, li, ci, mi = p[1], p[2], p[3], p[4], p[5], p[6]
+                        local caps = { line:match(pat) }
+                        if caps[fi] then
+                            local resolved = resolve_path(caps[fi], root)
+                            -- Only add to quickfix if the file actually exists
+                            -- on disk. This is the core heuristic that
+                            -- eliminates false positives from plain-text
+                            -- build output that happens to contain colons.
+                            if resolved then
+                                items[#items + 1] = {
+                                    filename = resolved,
+                                    lnum  = tonumber(caps[li]),
+                                    col   = ci and math.max(0, (tonumber(caps[ci]) or 1) - 1) or 0,
+                                    type  = et,
+                                    text  = caps[mi] or "",
+                                    valid = 1,
+                                }
+                                break
+                            end
+                        end
+                    end
+                end
+            end
         end
 
-        if hl then vim.api.nvim_buf_add_highlight(bufnr, ns, hl, idx, 0, -1) end
+        if hl then vim.api.nvim_buf_add_highlight(bufnr, ns, hl, row, 0, -1) end
+        i = i + advance
     end
+
+    return items
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -440,9 +515,14 @@ function M.compile(command)
         root = get_project_root()
     end
 
-    S.command  = command
-    S.root     = root
-    S.qf_index = 0
+    S.command    = command
+    S.root       = root
+    S.qf_index   = 0
+    -- Reset per-compile caches: file layout may have changed since the last
+    -- run, but within *this* run the same file is often referenced by many
+    -- error lines, so we still want to resolve it only once.
+    S.path_cache = {}
+    S.file_index = {}
 
     -- Kill any in-flight job without waiting
     if S.job_id then vim.fn.jobstop(S.job_id); S.job_id = nil end
@@ -487,10 +567,7 @@ function M.compile(command)
             -- already present when this callback fires.
             vim.schedule(function()
                 local b     = get_buf()
-                apply_syntax(b)
-
-                local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
-                local items = parse_errors(lines, S.root)
+                local items = analyze_buffer(b, S.root)
                 vim.fn.setqflist({}, "r", { title = "Compilation", items = items })
 
                 local nerr, nwrn = 0, 0
