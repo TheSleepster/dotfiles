@@ -216,6 +216,12 @@ local PATTERNS = {
     -- Without column
     { "^(.+):(%d+):%s*error:%s*(.+)$",                "E", 1, 2, nil, 3 },
     { "^(.+):(%d+):%s*warning:%s*(.+)$",              "W", 1, 2, nil, 3 },
+    -- Jai — file:line,col: Error: msg
+    { "^(.+):(%d+),(%d+):%s*[Ee]rror:%s*(.+)$",       "E", 1, 2, 3, 4 },
+    { "^(.+):(%d+),(%d+):%s*[Ww]arning:%s*(.+)$",     "W", 1, 2, 3, 4 },
+    -- Jai (alternate) — file(line,col): Error: msg
+    { "^(.-)%((%d+),(%d+)%):%s*[Ee]rror:%s*(.+)$",    "E", 1, 2, 3, 4 },
+    { "^(.-)%((%d+),(%d+)%):%s*[Ww]arning:%s*(.+)$",  "W", 1, 2, 3, 4 },
     -- MSVC — file(line,col): error CXXXX: msg
     { "^(.-)%((%d+),(%d+)%):%s*error%s+(.+)$",        "E", 1, 2, 3, 4 },
     { "^(.-)%((%d+),(%d+)%):%s*warning%s+(.+)$",      "W", 1, 2, 3, 4 },

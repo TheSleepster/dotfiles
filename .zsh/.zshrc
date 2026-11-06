@@ -15,6 +15,8 @@ export ZSH="$HOME/.oh-my-zsh"
 export MAKEFLAGS="-j $(nproc)"
 export XMAKE_PROFILE=
 
+export SVN_EDITOR="nvim"
+
 ZSH_THEME="robbyrussell"
 
 # Set list of themes to pick from when loading at random

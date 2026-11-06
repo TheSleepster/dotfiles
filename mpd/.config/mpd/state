@@ -1,8 +1,8 @@
 sw_volume: 15
 audio_device_state:1:PipeWire Sound Server
 state: play
-current: 57
-time: 120.101
+current: 12
+time: 120.017
 random: 1
 repeat: 1
 single: 0
@@ -12,77 +12,52 @@ mixrampdb: 0
 mixrampdelay: -1
 lastloadedplaylist: 
 playlist_begin
-0:Cafune/cafune - 🎵 Tek It.flac
-1:SAO/LiSA BEST -Day - Crossing Field.flac
-2:Attack On Titan OST/KOHTA YAMAMOTO - Splinter Wolf.flac
-3:Attack On Titan OST/KOHTA YAMAMOTO - TRAITOR.flac
-4:Attack On Titan OST/KOHTA YAMAMOTO - The Warriors.flac
-5:Attack On Titan OST/KOHTA YAMAMOTO - 🎵 attack till we are Ashes.flac
-6:Attack On Titan OST/🎬 theDOGS.flac
-7:Persona/Lotus Juice - Full Moon Full Life.flac
-8:Calamity/Stained, Brutal Calamity TRX v4.5α (Alternate Ultrasymphonic Arr. - Calamity Mod OST ReOrchestrated) [tj2VLgvmySo].flac
-9:Eminem/Eminem - 🎵 Beautiful.flac
-10:Not Good/The Search - Time.flac
-11:Eminem/Curtain Call_ The Hits - Sing For The Moment.flac
-12:SAO/Akai wana who loves it_ _ ADAMAS - ADAMAS.flac
-13:Linkin Park/Linkin Park - 00 The Emptiness Machine.flac
-14:Spice and Wolf/Natsumi Kiyoura - Tabi no Tochu.flac
-15:DATABASE/Man With A Mission · database · 3_59 - Database.flac
-16:Calamity/Dm Dokuro - 🎵 Roar of the Jungle Dragon.flac
-17:Guilty Crown OST/Supercell - My Dearest.flac
-18:Guilty Crown OST/EGOIST - The Everlasting Guilty Crown.flac
-19:Persona/Don't [dT5Ck6bXBu8].flac
-20:SAO/Akai wana who loves it_ _ ADAMAS - ADAMAS.flac
-21:SAO/ASCA · Hyakka Ryoran · 3_47 - Resister.flac
-22:SAO/LiSA BEST -Day - Crossing Field.flac
-23:Persona/Lotus Juice · Persona 3 Reload Original Soundtrack · 3_06 - It's Going Down Now.flac
-24:DOOM OST/Mick Gordon - Bfg Division.flac
-25:DOOM OST/Mick Gordon - Rip & Tear.flac
-26:DATABASE/Man With A Mission · MAN WITH A MISSION · 4_12 - FLY AGAIN.flac
-27:DMC5/🎬 Bury the Light - Vergil's battle theme from Devil May Cry 5 [OFFICIAL AUDIO].flac
-28:LoveJoy/Lovejoy - Deathbox.flac
-29:Calamity/Stained, Brutal Calamity [vS2SIGF3qhk].flac
-30:DragonForce/DragonForce · Killer Elite · 7_19 - Through The Fire And Flames.flac
-31:James Marriott/James Marriott - California Rain (Official Music Video) [KgI1P-W1_s4].flac
-32:Killers/Direct Hits - Mr. Brightside.flac
-33:Linkin Park/Linkin Park - Lost.flac
-34:LoveJoy/Lovejoy - Baptism.flac
-35:LoveJoy/Lovejoy - Foxholes.flac
-36:Polaris/The Death of Me - All of This Is Fleeting.flac
-37:SAO/🎬 Swordland.flac
-38:James Marriott/James Marriott - Grapes (Official Music Video) [-uk3GwgNc3o].flac
-39:Los Campesinos!/Hold On Now, Youngster... (Remastered Deluxe Edition) - Knee Deep At ATP (Remastered).flac
-40:Los Campesinos!/Hello Sadness - Hello Sadness.flac
-41:Los Campesinos!/Hello Sadness - By Your Hand.flac
-42:LoveJoy/Knee Deep at ATP - Knee Deep at ATP.flac
-43:LoveJoy/Lovejoy - Perfect Blue.flac
-44:Wuwa/Wuthering Waves · She Who Defies All Measures（Original Game Soundtrack） · 3_40 - In Moments Does Moon Persist.flac
-45:Wuwa/Wuthering Waves · Running For Your Life（Original Game Soundtrack） · 3_50 - Running For Your Life.flac
-46:Goodkid/Good Kid - Cicada.flac
-47:James Marriott/I Don't Want To Live Like This - I Don't Want To Live Like This.flac
-48:James Marriott/Don't Tell The Dog - Something's Wrong.flac
-49:James Marriott/Bitter Tongues - Sleeping On Trains.flac
-50:Metal Gear Rising OST/Jimmy Gnecco - Collective Consciousness (Maniac Agenda Mix).flac
-51:ReZero/🎬 Stay Alive ～Regain～.flac
-52:Stuff/🎬 Study with Me in Hollow Knight _ Knight's Studies _ 25_5 Pomodoro Timer [2hr] [2K].flac
-53:Calamity/Dm Dokuro - The Tale of a Cruel World.flac
-54:Turnover/Turnover - Diazepam.flac
-55:Turnover/Turnover - Dizzy On the Comedown.flac
-56:Turnover/Turnover - Cutting My Fingers Off.flac
-57:Turnover/Turnover - I Would Hate You If I Could.flac
-58:Turnover/Turnover - New Scream.flac
-59:ReZero/🎬 Stay Alive ～Regain～.flac
-60:ReZero/Konomi Suzuki - redo.flac
-61:ReZero/Mayu Maeshima · TVアニメ「Re_ゼロから始める異世界生活」2nd season 後期オープニングテーマ「Long shot」 · 4_15 - Long shot.flac
-62:ReZero/🎬 Re_Zero Season 2 - Opening Full『Realize』by Konomi Suzuki.flac
-63:ReZero/🎬 Re_Zero Season 4 - Opening FULL ''Recollect_ by Konomi Suzuki feat. Ashnikko (Lyrics).flac
-64:ReZero/Konomi Suzuki · Reweave · 3_57 - Reweave.flac
-65:ReZero/Nonoc · TVアニメ「Re_ゼロから始める異世界生活」2nd season 後期エンディングテーマ「Believe in you」 · 4_39 - Believe in you.flac
-66:ReZero/Nonoc · TVアニメ「Re_ゼロから始める異世界生活」2nd seasonエンディングテーマ「Memento」 · 5_04 - Memento.flac
-67:Wilbur/Wilbur Soot - Melatonin 130.flac
-68:Wilbur/Wilbur Soot - Oh Distant You.flac
-69:Wilbur/Wilbur Soot - Amazon Standing Lamp.flac
-70:Wilbur/Wilbur Soot - Around the Pomegranate.flac
-71:Wilbur/Wilbur Soot - Trying Not To Think About It.flac
-72:Wilbur/Wilbur Soot - Mine _ Yours.flac
+0:Marietta/Marietta - You've Got the Map Backwards, Matt.flac
+1:Turnover/Turnover - Cutting My Fingers Off.flac
+2:Turnover/Turnover - Diazepam.flac
+3:Turnover/Turnover - Dizzy On the Comedown.flac
+4:Turnover/Turnover - I Would Hate You If I Could.flac
+5:Turnover/Turnover - Intrapersonal.flac
+6:Turnover/Turnover - New Scream.flac
+7:Spice and Wolf/Natsumi Kiyoura - Tabi no Tochu.flac
+8:Slaughter Beach Dog/🎬 Slaughter Beach, Dog - 104 degrees.flac
+9:SAO/Akai wana who loves it_ _ ADAMAS - ADAMAS.flac
+10:SAO/ASCA · Hyakka Ryoran · 3_47 - Resister.flac
+11:SAO/LiSA BEST -Day - Crossing Field.flac
+12:SAO/🎬 Swordland.flac
+13:ReZero/🎬 Re_Zero Season 2 - Opening Full『Realize』by Konomi Suzuki.flac
+14:ReZero/🎬 Re_Zero Season 4 - Opening FULL ''Recollect_ by Konomi Suzuki feat. Ashnikko (Lyrics).flac
+15:ReZero/Konomi Suzuki - redo.flac
+16:ReZero/Konomi Suzuki · Reweave · 3_57 - Reweave.flac
+17:ReZero/Mayu Maeshima · TVアニメ「Re_ゼロから始める異世界生活」2nd season 後期オープニングテーマ「Long shot」 · 4_15 - Long shot.flac
+18:ReZero/Nonoc · TVアニメ「Re_ゼロから始める異世界生活」2nd season 後期エンディングテーマ「Believe in you」 · 4_39 - Believe in you.flac
+19:ReZero/Nonoc · TVアニメ「Re_ゼロから始める異世界生活」2nd seasonエンディングテーマ「Memento」 · 5_04 - Memento.flac
+20:ReZero/🎬 Stay Alive ～Regain～.flac
+21:Persona/Lotus Juice · Persona 3 Reload Original Soundtrack · 3_06 - It's Going Down Now.flac
+22:Persona/Lotus Juice - Full Moon Full Life.flac
+23:Not Good/NF - HAPPY.flac
+24:Not Good/NF - HOPE.flac
+25:Not Good/The Search - Time.flac
+26:Movements/Feel Something - Daylily.flac
+27:Modern Baseball/Modern Baseball - Broken Cash Machine.flac
+28:Modern Baseball/Modern Baseball - Hours Outside in the Snow.flac
+29:Modern Baseball/Modern Baseball - Note To Self.flac
+30:Modern Baseball/Modern Baseball - Re-Do.flac
+31:Modern Baseball/Modern Baseball - Re-Done.flac
+32:Modern Baseball/Modern Baseball - The Old Gospel Choir.flac
+33:Modern Baseball/Modern Baseball - Your Graduation.flac
+34:LoveJoy/Lovejoy - Pay & Display.flac
+35:LoveJoy/Lovejoy - Baptism.flac
+36:Linkin Park/Linkin Park - 00 The Emptiness Machine.flac
+37:Linkin Park/Linkin Park - 00 Leave Out All The Rest.flac
+38:Killers/Direct Hits - Mr. Brightside.flac
+39:James Marriott/Bitter Tongues - Sleeping On Trains.flac
+40:James Marriott/Don't Tell The Dog - Something's Wrong.flac
+41:James Marriott/I Don't Want To Live Like This - I Don't Want To Live Like This.flac
+42:James Marriott/James Marriott - California Rain (Official Music Video) [KgI1P-W1_s4].flac
+43:James Marriott/James Marriott - Grapes (Official Music Video) [-uk3GwgNc3o].flac
+44:Hands Like Houses/Hands Like Houses - Degrees of Separation.flac
+45:Guilty Crown OST/EGOIST - The Everlasting Guilty Crown.flac
+46:Guilty Crown OST/Supercell - My Dearest.flac
+47:Guilty Crown OST/Hiroyuki Sawano · GUILTY CROWN (COMPLETE SOUNDTRACK) · 4_33 - Bios.flac
 playlist_end

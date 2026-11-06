@@ -69,6 +69,9 @@ vim.api.nvim_create_autocmd("FileType", {
     bo.shiftwidth = 4
     bo.softtabstop = 4
     bo.cinoptions = my_cinoptions
+
+    vim.opt.cinkeys:remove({ '0#' })
+    vim.opt.indentexpr = ""
   end,
 })
 
